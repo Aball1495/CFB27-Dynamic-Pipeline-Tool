@@ -1,0 +1,297 @@
+let settings = null;
+let presets = null;
+let teamColors = {};
+let engineResults = {};
+let selectedTeams = new Set();
+
+const TIER_ORDER = ["Unrecognized", "NicheInterest", "Respected", "Popular", "HouseholdName", "CulturalPillar"];
+
+async function init() {
+  settings = await window.api.getSettings();
+  presets = await window.api.getPresets();
+  teamColors = await window.api.getTeamColors();
+  syncSlidersFromSettings();
+  updatePresetLabel();
+}
+
+// ---- File selection (direct save file) ----
+
+let savePath = null;
+
+document.getElementById('btn-select-save').addEventListener('click', async () => {
+  const picked = await window.api.selectSaveFile();
+  if (!picked) return;
+  savePath = picked;
+  document.getElementById('save-path-display').textContent = `Selected: ${savePath}`;
+});
+
+// ---- Settings sliders/presets ----
+
+const sliderIds = ['wRoster', 'wStar', 'wCoach', 'wGeo'];
+
+function syncSlidersFromSettings() {
+  for (const id of sliderIds) {
+    document.getElementById(`slider-${id}`).value = settings[id];
+    document.getElementById(`out-${id}`).textContent = settings[id].toFixed(2);
+  }
+  document.getElementById('chk-hc').checked = settings.coachInclude.HeadCoach;
+  document.getElementById('chk-oc').checked = settings.coachInclude.OffensiveCoordinator;
+  document.getElementById('chk-dc').checked = settings.coachInclude.DefensiveCoordinator;
+  document.getElementById('select-ramp-mode').value = settings.coachRampMode;
+  document.getElementById('input-ramp-seasons').value = settings.coachRampSeasons;
+  document.getElementById('slider-decay').value = settings.decay;
+  document.getElementById('out-decay').textContent = settings.decay.toFixed(2);
+  document.getElementById('slider-geoRadius').value = settings.geoRadius;
+  document.getElementById('out-geoRadius').textContent = `${settings.geoRadius}mi`;
+  checkWeightSum();
+}
+
+function checkWeightSum() {
+  const sum = sliderIds.reduce((s, id) => s + settings[id], 0);
+  const warning = document.getElementById('weight-sum-warning');
+  if (Math.abs(sum - 1.0) > 0.02) {
+    warning.classList.remove('hidden');
+    document.getElementById('weight-sum-value').textContent = sum.toFixed(2);
+  } else {
+    warning.classList.add('hidden');
+  }
+}
+
+function updatePresetLabel() {
+  const label = document.getElementById('preset-label');
+  const matched = Object.entries(presets).find(([, p]) =>
+    sliderIds.every((id) => Math.abs(p[id] - settings[id]) < 0.001)
+  );
+  document.querySelectorAll('.preset-btn').forEach((btn) => btn.classList.remove('active'));
+  if (matched) {
+    label.textContent = presetLabelFor(matched[0]);
+    const btn = document.querySelector(`[data-preset="${matched[0]}"]`);
+    if (btn) btn.classList.add('active');
+  } else {
+    label.textContent = 'Custom';
+  }
+}
+
+function presetLabelFor(key) {
+  return {
+    rosterDriven: 'Roster-driven', blueChipFocused: 'Blue-chip focused',
+    coachLegacy: 'Coach-legacy', grounded: 'Grounded',
+  }[key] || key;
+}
+
+for (const id of sliderIds) {
+  document.getElementById(`slider-${id}`).addEventListener('input', (e) => {
+    settings[id] = parseFloat(e.target.value);
+    document.getElementById(`out-${id}`).textContent = settings[id].toFixed(2);
+    checkWeightSum();
+    updatePresetLabel();
+    window.api.saveSettings(settings);
+  });
+}
+
+document.querySelectorAll('.preset-btn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    settings = await window.api.applyPreset(settings, btn.dataset.preset);
+    syncSlidersFromSettings();
+    updatePresetLabel();
+    window.api.saveSettings(settings);
+  });
+});
+
+document.getElementById('chk-hc').addEventListener('change', (e) => { settings.coachInclude.HeadCoach = e.target.checked; window.api.saveSettings(settings); });
+document.getElementById('chk-oc').addEventListener('change', (e) => { settings.coachInclude.OffensiveCoordinator = e.target.checked; window.api.saveSettings(settings); });
+document.getElementById('chk-dc').addEventListener('change', (e) => { settings.coachInclude.DefensiveCoordinator = e.target.checked; window.api.saveSettings(settings); });
+document.getElementById('select-ramp-mode').addEventListener('change', (e) => { settings.coachRampMode = e.target.value; window.api.saveSettings(settings); });
+document.getElementById('input-ramp-seasons').addEventListener('change', (e) => { settings.coachRampSeasons = parseInt(e.target.value, 10); window.api.saveSettings(settings); });
+document.getElementById('slider-decay').addEventListener('input', (e) => {
+  settings.decay = parseFloat(e.target.value);
+  document.getElementById('out-decay').textContent = settings.decay.toFixed(2);
+  window.api.saveSettings(settings);
+});
+document.getElementById('slider-geoRadius').addEventListener('input', (e) => {
+  settings.geoRadius = parseInt(e.target.value, 10);
+  document.getElementById('out-geoRadius').textContent = `${settings.geoRadius}mi`;
+  window.api.saveSettings(settings);
+});
+
+// ---- Run engine ----
+
+document.getElementById('btn-run').addEventListener('click', async () => {
+  if (!savePath) {
+    alert('Select a save file first.');
+    return;
+  }
+  const btn = document.getElementById('btn-run');
+  btn.textContent = 'Running\u2026';
+  btn.disabled = true;
+  try {
+    engineResults = await window.api.runEngine(savePath, settings);
+    selectedTeams = new Set();
+    renderPreview();
+  } finally {
+    btn.textContent = 'Run engine';
+    btn.disabled = false;
+  }
+});
+
+// ---- Preview rendering ----
+
+function tierColorFor(teamName, tierName) {
+  const colors = teamColors[teamName];
+  const base = colors ? colors[0] : '#888888';
+  const tierIndex = TIER_ORDER.indexOf(tierName);
+  const lightnessSteps = [0.92, 0.86, 0.68, 0.50, 0.34, 0.20];
+  return shadeHex(base, lightnessSteps[tierIndex] ?? 0.5);
+}
+
+function shadeHex(hex, targetLightness) {
+  const [h, , s] = hexToHsl(hex);
+  return hslToHex(h, targetLightness, Math.max(s, 0.5));
+}
+
+function hexToHsl(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+  if (max === min) { h = 0; s = 0; }
+  else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return [h, l, s];
+}
+
+function hslToHex(h, l, s) {
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  let r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const toHex = (v) => Math.round(v * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function renderPreview() {
+  const list = document.getElementById('preview-list');
+  list.innerHTML = '';
+  const search = document.getElementById('team-search').value.toLowerCase();
+
+  const teamNames = Object.keys(engineResults).filter((n) => n.toLowerCase().includes(search)).sort();
+
+  for (const teamName of teamNames) {
+    const { prior, after } = engineResults[teamName];
+    const priorRegions = new Set(prior.map((e) => e[1]));
+    const afterRegions = new Set(after.map((e) => e[1]));
+    const changed = [...priorRegions].some((r) => !afterRegions.has(r)) || [...afterRegions].some((r) => !priorRegions.has(r));
+
+    const row = document.createElement('div');
+    row.className = 'team-row';
+
+    const checkboxCell = document.createElement('div');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = selectedTeams.has(teamName);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedTeams.add(teamName);
+      else selectedTeams.delete(teamName);
+      updateSelectedCount();
+    });
+    checkboxCell.appendChild(checkbox);
+
+    const nameCell = document.createElement('div');
+    nameCell.className = 'team-name';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = teamName + (changed ? ' \u25CF' : '');
+    nameCell.appendChild(nameSpan);
+
+    const mapBtn = document.createElement('button');
+    mapBtn.className = 'btn btn-map';
+    mapBtn.textContent = 'View map';
+    mapBtn.addEventListener('click', () => openMapModal(teamName, after));
+    nameCell.appendChild(mapBtn);
+
+    const beforeCell = document.createElement('div');
+    beforeCell.innerHTML = '<div class="team-col-label">Before</div>' + prior.map(([tier, region, val]) =>
+      `<div class="region-line"><span><span class="tier-swatch" style="background:${tierColorFor(teamName, tier)}"></span>${region}</span><span>${val}</span></div>`
+    ).join('');
+
+    const afterCell = document.createElement('div');
+    afterCell.innerHTML = '<div class="team-col-label">After</div>' + after.map(([tier, region, val]) => {
+      const isNew = !priorRegions.has(region);
+      return `<div class="region-line ${isNew ? 'changed' : ''}"><span><span class="tier-swatch" style="background:${tierColorFor(teamName, tier)}"></span>${region}</span><span>${val}</span></div>`;
+    }).join('');
+
+    row.append(checkboxCell, nameCell, beforeCell, afterCell);
+    list.appendChild(row);
+  }
+  updateSelectedCount();
+}
+
+document.getElementById('team-search').addEventListener('input', renderPreview);
+
+// ---- Map modal ----
+
+function openMapModal(teamName, afterEntries) {
+  const modal = document.getElementById('map-modal');
+  const body = document.getElementById('map-modal-body');
+  modal.classList.remove('hidden');
+  const colors = teamColors[teamName];
+  const baseColor = colors ? colors[0] : '#888888';
+  window.PipelineMap.renderTeamMap(body, teamName, baseColor, afterEntries);
+}
+
+document.getElementById('btn-close-map').addEventListener('click', () => {
+  document.getElementById('map-modal').classList.add('hidden');
+});
+document.getElementById('map-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'map-modal') e.target.classList.add('hidden');
+});
+
+document.getElementById('chk-select-all').addEventListener('change', (e) => {
+  const teamNames = Object.keys(engineResults);
+  if (e.target.checked) selectedTeams = new Set(teamNames);
+  else selectedTeams = new Set();
+  renderPreview();
+});
+
+function updateSelectedCount() {
+  document.getElementById('selected-count').textContent = `${selectedTeams.size} team(s) selected`;
+  document.getElementById('btn-apply').disabled = selectedTeams.size === 0;
+}
+
+// ---- Apply ----
+
+document.getElementById('btn-apply').addEventListener('click', async () => {
+  const confirmed = confirm(
+    `This will write a brand new save file copy with recomputed pipeline values for ${selectedTeams.size} team(s). ` +
+    `Your original save is never modified. Continue?`
+  );
+  if (!confirmed) return;
+
+  const outputDir = await window.api.selectOutputDir();
+  if (!outputDir) return;
+
+  const result = await window.api.commitChanges(savePath, engineResults, [...selectedTeams], outputDir);
+  const resultDiv = document.getElementById('apply-result');
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = `
+    <div>New save file created: <strong>${result.outputPath}</strong></div>
+    <div class="hint">Load this save in-game to use the recomputed pipelines. Your original save was never touched.</div>
+  `;
+});
+
+init();

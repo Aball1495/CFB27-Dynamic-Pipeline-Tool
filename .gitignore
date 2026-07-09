@@ -1,0 +1,11 @@
+node_modules/ 
+dist/ 
+dist.zip 
+.DS_Store 
+Thumbs.db 
+.vscode/ 
+.idea/ 
+*.franchisesave 
+*.frdata 
+/test-saves/ 
+/output/ 

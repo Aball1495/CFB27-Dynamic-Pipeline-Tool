@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Dynamic Recruiting Pipeline Tool</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Dynamic Recruiting Pipeline Tool <span class="subtitle">for CFB27 Dynasties</span></h1>
+  </header>
+
+  <main class="layout">
+    <!-- STEP 1: Load files -->
+    <section class="panel" id="panel-files">
+      <h2>1. Open your save</h2>
+      <p class="hint">Direct save access &mdash; no Franchise Editor exports needed. Just point this at your dynasty save file.</p>
+      <button id="btn-select-save" class="btn btn-primary">Select save file&hellip;</button>
+      <div id="save-path-display" class="hint"></div>
+    </section>
+
+    <!-- STEP 2: Settings -->
+    <section class="panel" id="panel-settings">
+      <h2>2. Settings</h2>
+
+      <div class="preset-row">
+        <button class="btn preset-btn" data-preset="rosterDriven">Roster-driven</button>
+        <button class="btn preset-btn" data-preset="blueChipFocused">Blue-chip focused</button>
+        <button class="btn preset-btn" data-preset="coachLegacy">Coach-legacy</button>
+        <button class="btn preset-btn" data-preset="grounded">Grounded</button>
+        <span id="preset-label" class="preset-label">Custom</span>
+      </div>
+
+      <div class="sliders">
+        <label class="slider-row">
+          <span>Roster composition</span>
+          <input type="range" id="slider-wRoster" min="0" max="1" step="0.01" />
+          <output id="out-wRoster"></output>
+        </label>
+        <label class="slider-row">
+          <span>Star-weighted quality</span>
+          <input type="range" id="slider-wStar" min="0" max="1" step="0.01" />
+          <output id="out-wStar"></output>
+        </label>
+        <label class="slider-row">
+          <span>Coach pipeline</span>
+          <input type="range" id="slider-wCoach" min="0" max="1" step="0.01" />
+          <output id="out-wCoach"></output>
+        </label>
+        <label class="slider-row">
+          <span>Geography</span>
+          <input type="range" id="slider-wGeo" min="0" max="1" step="0.01" />
+          <output id="out-wGeo"></output>
+        </label>
+        <div id="weight-sum-warning" class="warning hidden">Weights should sum to 1.0 &mdash; currently <span id="weight-sum-value"></span></div>
+      </div>
+
+      <details class="advanced">
+        <summary>Advanced: coach &amp; geography detail</summary>
+        <div class="sub-settings">
+          <label class="checkbox-row"><input type="checkbox" id="chk-hc" /> Include Head Coach</label>
+          <label class="checkbox-row"><input type="checkbox" id="chk-oc" /> Include Offensive Coordinator</label>
+          <label class="checkbox-row"><input type="checkbox" id="chk-dc" /> Include Defensive Coordinator</label>
+          <label class="slider-row">
+            <span>Ramp-up mode</span>
+            <select id="select-ramp-mode">
+              <option value="ramp">Ramp up over seasons</option>
+              <option value="full">Full weight immediately</option>
+            </select>
+          </label>
+          <label class="slider-row">
+            <span>Ramp-up seasons</span>
+            <input type="number" id="input-ramp-seasons" min="1" max="10" />
+          </label>
+          <label class="slider-row">
+            <span>Decay (prior score kept each preseason)</span>
+            <input type="range" id="slider-decay" min="0" max="1" step="0.01" />
+            <output id="out-decay"></output>
+          </label>
+          <label class="slider-row">
+            <span>Recruiting radius (miles)</span>
+            <input type="range" id="slider-geoRadius" min="50" max="800" step="10" />
+            <output id="out-geoRadius"></output>
+          </label>
+        </div>
+      </details>
+
+      <button id="btn-run" class="btn btn-primary btn-large">Run engine</button>
+    </section>
+
+    <!-- STEP 3: Preview -->
+    <section class="panel panel-wide" id="panel-preview">
+      <h2>3. Preview changes</h2>
+      <div class="preview-toolbar">
+        <input type="text" id="team-search" placeholder="Search teams&hellip;" />
+        <label class="checkbox-row"><input type="checkbox" id="chk-select-all" /> Select all</label>
+        <span id="selected-count" class="hint"></span>
+      </div>
+      <div id="preview-list" class="preview-list"></div>
+    </section>
+
+    <!-- STEP 4: Apply -->
+    <section class="panel" id="panel-apply">
+      <h2>4. Apply</h2>
+      <p class="hint">This writes a brand new save file copy with the recomputed values. Your original save is never modified &mdash; not even opened in write mode.</p>
+      <button id="btn-apply" class="btn btn-danger btn-large" disabled>Apply selected changes&hellip;</button>
+      <div id="apply-result" class="apply-result hidden"></div>
+    </section>
+  </main>
+
+  <!-- Map modal -->
+  <div id="map-modal" class="map-modal hidden">
+    <div class="map-modal-content">
+      <button id="btn-close-map" class="btn map-modal-close">&times; Close</button>
+      <div id="map-modal-body"></div>
+    </div>
+  </div>
+
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/topojson.min.js"></script>
+  <script src="map.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

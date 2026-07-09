@@ -1,0 +1,628 @@
+{
+  "North Texas": [
+    "#00853E",
+    "#000000"
+  ],
+  "Wake Forest": [
+    "#9E7E38",
+    "#000000"
+  ],
+  "Arkansas": [
+    "#9D2235",
+    "#FFFFFF"
+  ],
+  "Kentucky": [
+    "#0033A0",
+    "#FFFFFF",
+    "#000000"
+  ],
+  "Arizona": [
+    "#CC0033",
+    "#003366"
+  ],
+  "NC State": [
+    "#CC0000",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "Louisville": [
+    "#AD0000",
+    "#000000",
+    "#FDB913"
+  ],
+  "Utah State": [
+    "#00263A",
+    "#8A8D8F",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "Louisiana Tech": [
+    "#002F8B",
+    "#E31B23",
+    "#A2AAAD",
+    "#111111"
+  ],
+  "Ohio": [
+    "#00694E",
+    "#CDA077"
+  ],
+  "Delaware": [
+    "#00539F",
+    "#FFDD31"
+  ],
+  "TCU": [
+    "#4D1979",
+    "#A3A9AC",
+    "#FFFFFF"
+  ],
+  "UTEP": [
+    "#FF8200",
+    "#041E42",
+    "#B1B3B3"
+  ],
+  "NIU": [
+    "#BA0C2F",
+    "#8A8D8F"
+  ],
+  "West Virginia": [
+    "#002855",
+    "#EAAA00"
+  ],
+  "Clemson": [
+    "#F56600",
+    "#522D80"
+  ],
+  "W. Kentucky": [
+    "#C60C30",
+    "#1E1E1E"
+  ],
+  "Liberty": [
+    "#002D62",
+    "#C41230"
+  ],
+  "Louisiana": [
+    "#CE181E",
+    "#0A0203"
+  ],
+  "Penn State": [
+    "#041E42",
+    "#FFFFFF"
+  ],
+  "Nevada": [
+    "#003366",
+    "#807F84"
+  ],
+  "Arizona State": [
+    "#8C1D40",
+    "#FFC627"
+  ],
+  "Fresno State": [
+    "#DB0032",
+    "#002E6D"
+  ],
+  "Houston": [
+    "#C8102E",
+    "#76232F",
+    "#B2B4B2"
+  ],
+  "Northwestern": [
+    "#4E2A84",
+    "#FFFFFF"
+  ],
+  "Sac State": [
+    "#043927",
+    "#C4B581"
+  ],
+  "UConn": [
+    "#000E2F",
+    "#FFFFFF",
+    "#7C878E",
+    "#E4002B"
+  ],
+  "UL Monroe": [
+    "#840029",
+    "#FDB913"
+  ],
+  "UCF": [
+    "#FFC904",
+    "#BA9B37",
+    "#000000"
+  ],
+  "Cincinnati": [
+    "#E00122",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "Tennessee": [
+    "#FF8200",
+    "#58595B",
+    "#FFFFFF"
+  ],
+  "C. Michigan": [
+    "#6A0032",
+    "#FFC82E"
+  ],
+  "Georgia State": [
+    "#0039A6",
+    "#C60C30"
+  ],
+  "USF": [
+    "#006747",
+    "#CFC493"
+  ],
+  "Pittsburgh": [
+    "#003594",
+    "#FFB81C"
+  ],
+  "Kansas": [
+    "#0051BA",
+    "#E8000D",
+    "#FFC82D",
+    "#85898A"
+  ],
+  "Minnesota": [
+    "#7A0019",
+    "#FFCC33"
+  ],
+  "Air Force": [
+    "#003087",
+    "#8A8D8F"
+  ],
+  "Tulane": [
+    "#006747",
+    "#43B02A",
+    "#418FDE",
+    "#FFFFFF",
+    "#000000"
+  ],
+  "Texas State": [
+    "#501214",
+    "#8D734A"
+  ],
+  "Navy": [
+    "#00205B",
+    "#C5B783"
+  ],
+  "Temple": [
+    "#9D2235",
+    "#FFCD00",
+    "#8A8D8F",
+    "#C1C6C8",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "Kansas State": [
+    "#512888",
+    "#D1D1D1",
+    "#A7A7A7",
+    "#FFFFFF",
+    "#000000"
+  ],
+  "UTSA": [
+    "#F15A22",
+    "#0C2340"
+  ],
+  "SMU": [
+    "#0033A0",
+    "#C8102E"
+  ],
+  "USC": [
+    "#990000",
+    "#FFC72C"
+  ],
+  "Hawai'i": [
+    "#024731",
+    "#C8C8C8",
+    "#000000"
+  ],
+  "East Carolina": [
+    "#592A8A",
+    "#FDC82F"
+  ],
+  "Maryland": [
+    "#E03A3E",
+    "#FFFFFF",
+    "#000000",
+    "#FFD520"
+  ],
+  "Colorado State": [
+    "#1E4D2B",
+    "#C8C372"
+  ],
+  "Alabama": [
+    "#9E1B32",
+    "#828A8F",
+    "#FFFFFF"
+  ],
+  "Toledo": [
+    "#15397F",
+    "#005CB9",
+    "#FFDA00"
+  ],
+  "Iowa State": [
+    "#C8102E",
+    "#F1BE48"
+  ],
+  "Oregon State": [
+    "#DC4405",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "Missouri": [
+    "#000000",
+    "#F1B82D"
+  ],
+  "Mississippi St": [
+    "#660000",
+    "#FFFFFF"
+  ],
+  "Stanford": [
+    "#8C1515",
+    "#4D4F53",
+    "#2E2D29",
+    "#FFFFFF"
+  ],
+  "NDSU": [
+    "#0A5640",
+    "#FFC72A"
+  ],
+  "UMass": [
+    "#971B2F",
+    "#572932"
+  ],
+  "Texas Tech": [
+    "#CC0000",
+    "#000000"
+  ],
+  "Washington": [
+    "#4B2E83",
+    "#B7A57A",
+    "#85754D"
+  ],
+  "UCLA": [
+    "#2D68C4",
+    "#F2A900"
+  ],
+  "North Carolina": [
+    "#7BAFD4",
+    "#FFFFFF"
+  ],
+  "W. Michigan": [
+    "#6C4023",
+    "#B5A167"
+  ],
+  "New Mexico": [
+    "#BA0C2F",
+    "#A7A8AA"
+  ],
+  "Vanderbilt": [
+    "#000000",
+    "#866D4B"
+  ],
+  "FLA Atlantic": [
+    "#003366",
+    "#CC0000",
+    "#8A8D8F",
+    "#CCCCCC"
+  ],
+  "Texas": [
+    "#BF5700",
+    "#333F48",
+    "#FFFFFF"
+  ],
+  "Missouri State": [
+    "#5E0009",
+    "#FFFFFF"
+  ],
+  "Syracuse": [
+    "#F76900",
+    "#FFFFFF",
+    "#000E54"
+  ],
+  "California": [
+    "#003262",
+    "#3B7EA1",
+    "#FDB515",
+    "#C4820E"
+  ],
+  "C. Carolina": [
+    "#006F71",
+    "#A27752",
+    "#111111"
+  ],
+  "Akron": [
+    "#041E42",
+    "#A89968"
+  ],
+  "Nebraska": [
+    "#E41C38",
+    "#000000",
+    "#FFFFFF",
+    "#FDF2D9"
+  ],
+  "Jax State": [
+    "#CC0000",
+    "#FFFFFF"
+  ],
+  "Georgia Tech": [
+    "#B3A369",
+    "#A28D5B",
+    "#003057"
+  ],
+  "Michigan State": [
+    "#18453B",
+    "#FFFFFF"
+  ],
+  "Texas A&M": [
+    "#500000",
+    "#FFFFFF"
+  ],
+  "Arkansas State": [
+    "#CC092F",
+    "#000000"
+  ],
+  "Wyoming": [
+    "#FFC425",
+    "#492F24"
+  ],
+  "Florida": [
+    "#0021A5",
+    "#FA4616"
+  ],
+  "South Alabama": [
+    "#00205B",
+    "#BF0D3E",
+    "#FFFFFF"
+  ],
+  "Buffalo": [
+    "#005BBB",
+    "#FFFFFF"
+  ],
+  "LSU": [
+    "#461D7C",
+    "#FDD023"
+  ],
+  "Baylor": [
+    "#154734",
+    "#FFB81C"
+  ],
+  "Boston College": [
+    "#98002E",
+    "#BC9B6A"
+  ],
+  "Duke": [
+    "#003087",
+    "#FFFFFF"
+  ],
+  "Ohio State": [
+    "#BB0000",
+    "#666666",
+    "#FFFFFF",
+    "#000000"
+  ],
+  "Old Dominion": [
+    "#003057",
+    "#7C878E"
+  ],
+  "Kennesaw St.": [
+    "#FDBB30",
+    "#0B1315"
+  ],
+  "Bowling Green": [
+    "#FE5000",
+    "#4F2C1D"
+  ],
+  "Oklahoma": [
+    "#841617",
+    "#FDF9D8"
+  ],
+  "FIU": [
+    "#081E3F",
+    "#B6862C"
+  ],
+  "Colorado": [
+    "#CFB87C",
+    "#000000",
+    "#A2A4A3"
+  ],
+  "Charlotte": [
+    "#046A38",
+    "#B9975B",
+    "#27251F",
+    "#FFFFFF"
+  ],
+  "Oregon": [
+    "#154733",
+    "#FEE123"
+  ],
+  "Florida State": [
+    "#782F40",
+    "#CEB888",
+    "#FFFFFF",
+    "#000000"
+  ],
+  "Illinois": [
+    "#13294B",
+    "#E84A27"
+  ],
+  "James Madison": [
+    "#450084",
+    "#CBB677"
+  ],
+  "Virginia Tech": [
+    "#630031",
+    "#CF4420"
+  ],
+  "Sam Houston": [
+    "#FE5100",
+    "#FFFFFF"
+  ],
+  "Auburn": [
+    "#0C2340",
+    "#E87722"
+  ],
+  "Army": [
+    "#D4BF91",
+    "#B2B4B3",
+    "#000000"
+  ],
+  "Washington St.": [
+    "#981E32",
+    "#5E6A71"
+  ],
+  "Southern Miss": [
+    "#000000",
+    "#FFAB00"
+  ],
+  "Troy": [
+    "#8A2432",
+    "#B3B5B8"
+  ],
+  "Ball State": [
+    "#BA0C2F",
+    "#000000"
+  ],
+  "Rice": [
+    "#00205B",
+    "#C1C6C8"
+  ],
+  "UAB": [
+    "#006341",
+    "#CC8A00",
+    "#000000",
+    "#BF0D3E"
+  ],
+  "App St.": [
+    "#222222",
+    "#FFCC00"
+  ],
+  "Michigan": [
+    "#00274C",
+    "#FFCB05"
+  ],
+  "Tulsa": [
+    "#002D72",
+    "#C8102E",
+    "#C5B783",
+    "#F3D54E",
+    "#84754E"
+  ],
+  "South Carolina": [
+    "#73000A",
+    "#000000"
+  ],
+  "Ga Southern": [
+    "#011E41",
+    "#A3AAAE",
+    "#87714D"
+  ],
+  "UNLV": [
+    "#CF0A2C",
+    "#CAC8C8"
+  ],
+  "Miami": [
+    "#F47321",
+    "#005030",
+    "#FFFFFF"
+  ],
+  "Ole Miss": [
+    "#CE1126",
+    "#14213D"
+  ],
+  "Oklahoma State": [
+    "#FF7300",
+    "#000000"
+  ],
+  "Iowa": [
+    "#000000",
+    "#FFCD00"
+  ],
+  "Kent State": [
+    "#002664",
+    "#EAAB00"
+  ],
+  "Notre Dame": [
+    "#0C2340",
+    "#C99700",
+    "#AE9142",
+    "#00843D"
+  ],
+  "Boise State": [
+    "#D64309",
+    "#0033A0"
+  ],
+  "Purdue": [
+    "#CEB888",
+    "#000000",
+    "#9D968D",
+    "#373A36",
+    "#C28E0E"
+  ],
+  "Virginia": [
+    "#232D4B",
+    "#F84C1E"
+  ],
+  "Indiana": [
+    "#990000",
+    "#EEEDEB"
+  ],
+  "Marshall": [
+    "#00B140",
+    "#A2AAAD"
+  ],
+  "Memphis": [
+    "#003087",
+    "#898D8D",
+    "#F8992E"
+  ],
+  "San Diego St.": [
+    "#A6192E",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "New Mexico St.": [
+    "#861F41",
+    "#97999B"
+  ],
+  "Rutgers": [
+    "#CC0033",
+    "#5F6A72",
+    "#000000"
+  ],
+  "Georgia": [
+    "#BA0C2F",
+    "#000000",
+    "#FFFFFF"
+  ],
+  "San Jose State": [
+    "#0055A2",
+    "#E5A823",
+    "#939597"
+  ],
+  "E. Michigan": [
+    "#006633",
+    "#FFFFFF"
+  ],
+  "Utah": [
+    "#CC0000",
+    "#808080",
+    "#000000"
+  ],
+  "BYU": [
+    "#002E5D",
+    "#0062B8",
+    "#FFFFFF"
+  ],
+  "Wisconsin": [
+    "#C5050C",
+    "#FFFFFF"
+  ],
+  "Middle Tenn": [
+    "#000000",
+    "#0066CC"
+  ],
+  "Miami (OH)": [
+    "#B61E2E",
+    "#000000"
+  ]
+}

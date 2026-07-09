@@ -1,0 +1,31 @@
+{
+  "name": "cfb27-pipeline-tool",
+  "version": "0.1.0",
+  "description": "Dynamic recruiting pipeline recalculation tool for CFB27 dynasty saves",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "madden-franchise": "^4.3.1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.ball14.pipelinetool",
+    "productName": "Dynamic Recruiting Pipeline Tool",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**"
+    ],
+    "win": {
+      "target": "portable"
+    }
+  }
+}
