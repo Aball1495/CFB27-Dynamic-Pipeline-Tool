@@ -16,17 +16,27 @@ real save).
 
 ## Setup
 
-You need Node.js installed.
+**Easiest option (recommended):** download the latest `.zip` from
+[Releases], extract it, and double-click `Dynamic Recruiting Pipeline
+Tool.exe` inside the extracted folder. **No Node.js or any other install
+needed** -- everything the app needs (including its own Node.js runtime)
+is bundled inside the exe already. Keep the exe inside its extracted
+folder; it depends on the other files sitting next to it.
 
-**Easiest option (Windows):** double-click `start.bat`. First run installs
-dependencies automatically (needs internet, only happens once); every run
-after that just launches the app straight away.
+> **Windows may show a "Windows protected your PC" warning** the first
+> time you run this -- that's normal for any small unsigned app like this
+> one, not a sign of an actual problem. Click **More info** -> **Run
+> anyway** to continue.
 
-**Manual option (any OS):**
+**Building/running from source instead:** this path *does* require
+Node.js installed on your machine (only the packaged exe above is
+self-contained).
 ```
 npm install
 npm start
 ```
+Or on Windows, double-click `start.bat`, which runs `npm install`
+automatically on first launch.
 
 ## Workflow
 
@@ -35,7 +45,9 @@ npm start
 2. **Settings** -- pick a preset (Roster-driven / Blue-chip focused /
    Coach-legacy / Grounded) or adjust individual sliders. Dragging any
    slider away from a preset's values automatically switches the label to
-   "Custom."
+   "Custom." Click a slider then use your keyboard's **arrow keys** for
+   small, precise adjustments -- easier than dragging with a mouse when
+   you're trying to land on an exact value.
 3. **Run engine** -- reads every team's roster, coaching staff, and current
    pipeline data straight from the save, and computes new top-10 pipelines
    for each.
@@ -46,6 +58,64 @@ npm start
    values. Your original save is **never opened in write mode** at any
    point in this flow -- the app always works on a fresh copy. Load that
    new copy in-game to use the recomputed pipelines.
+
+## Presets, weights, and what each one means
+
+The 4 sliders (Roster composition / Star-weighted quality / Coach
+pipeline / Geography) control how much each factor counts toward a
+school's new pipeline scores.
+
+**The 4 presets, and their exact weights:**
+
+| Preset | Roster | Star | Coach | Geo | Best for... |
+|---|---|---|---|---|---|
+| **Roster-driven** | 0.35 | 0.35 | 0.20 | 0.10 | A balanced, "what does the roster actually look like" view -- current roster makeup and recruit quality matter about equally, coaching has a modest say, geography barely nudges things. Good default if you're not sure which to pick. |
+| **Blue-chip focused** | 0.20 | 0.55 | 0.15 | 0.10 | Star power dominates. A school that's landed a handful of 4-5 star recruits will see its pipeline jump fast, even if the rest of the roster is thin. Good for highlighting programs on a hot recruiting streak. |
+| **Coach-legacy** | 0.20 | 0.25 | 0.45 | 0.10 | Coaching staff's own recruiting ties matter most. A new hire with a strong home-region pipeline can reshape a school's map even before the roster catches up (subject to the ramp-up setting below). |
+| **Grounded** | 0.30 | 0.25 | 0.10 | 0.35 | Geography matters most here -- schools pull harder from nearby regions and coaching/star factors count for less. Produces a more "realistic recruiting footprint" feel, closer to real-world regional recruiting. |
+
+**Going custom:** drag any slider away from a preset's exact values and
+the label switches to "Custom" automatically. Arrow keys (after clicking
+a slider) move it in small steps -- handy for nudging values to land
+exactly on 1.0 instead of eyeballing it with the mouse. **The 4 weights
+should always sum to 1.0** -- the app shows a warning banner if your custom
+sliders add up to anything else, so one factor doesn't silently end up
+over- or under-weighted relative to what the numbers suggest. That said,
+the warning is advisory, not a hard block -- the engine will still run if
+your sliders don't sum to 1.0, so keep an eye on that banner if you're
+customizing.
+
+## Advanced: coach & geography detail
+
+Tucked under the "Advanced" disclosure in Settings:
+
+- **Include Head Coach / Offensive Coordinator / Defensive Coordinator**
+  -- checkboxes controlling which staff members' `PrimaryPipeline`
+  contributes to the Coach pipeline factor. Unchecking one removes their
+  influence entirely rather than just reducing it.
+- **Ramp-up mode** -- `Ramp up over seasons` (default) means a newly
+  hired coach's pipeline influence phases in gradually rather than
+  applying at full strength on day one; `Full weight immediately` skips
+  that phase-in and treats every coach's influence as fully active from
+  the moment they're hired.
+- **Ramp-up seasons** (default 3) -- only matters in ramp mode. How many
+  seasons it takes a new coach's influence to reach full weight. A coach
+  in their first season under a 3-season ramp contributes roughly 1/3
+  weight, season two roughly 2/3, full weight by season three onward.
+- **Decay** (default 0.75) -- how much of last season's pipeline score
+  carries forward into the new calculation, versus how much comes from
+  this season's fresh numbers. At 0.75, a school's new score is 75% prior
+  score + 25% freshly computed -- pipelines shift gradually rather than
+  swinging wildly preseason to preseason. Lower this if you want pipelines
+  to react faster to roster/coaching changes; raise it for more stability
+  season to season.
+- **Recruiting radius** (default 300 miles) -- the distance at which the
+  Geography factor's bonus has decayed to about a third of its
+  close-range value. Schools pull geography credit hardest from nearby
+  regions, tapering off smoothly with distance rather than cutting off
+  sharply at the radius line. Smaller radius = more hyper-local recruiting
+  footprints; larger radius = geography credit extends further from
+  campus.
 
 ## How the save-file access works
 
@@ -73,15 +143,26 @@ The Team table also contains 5 non-real placeholder rows (blank
 `DisplayName`, `TeamIndex === 255`) alongside the 138 real FBS teams --
 `readTeamPipelineMapping()` filters these out automatically.
 
+## Where you'll actually see the changes in-game
+
+The recomputed pipeline values only show up in the **recruiting tabs** (team
+recruiting board, recruit's school interest/pipeline breakdown, etc.) --
+they do **not** change anything on the team-select screen or other UI when
+you pick a team in the game. That screen shows separate, unrelated team
+data. If you're checking whether the tool worked, look at a recruit's
+pipeline/interest breakdown for the school you changed, not the team
+picker.
+
 ## Known limitations / next steps
 
 - Geography uses real haversine distance from empirically-derived region
   centroids (`data/regionCentroids.json`), built from real player hometown
   data gathered earlier in this project.
-- Map/leaderboard visualizations (designed, colors validated against real
-  team branding) aren't wired into this UI yet -- currently a simple
-  before/after list per team. Worth adding once the core direct-save
-  workflow is confirmed solid across a real season of use.
+- Per-team map view is wired in (click "View map" in the preview list) --
+  shows real state/county boundaries colored by pipeline tier, with
+  sub-state splits for TX/FL/GA/CA. Runs fully offline: the map libraries
+  (`renderer/vendor/`) and county boundary data (`renderer/data/`) are
+  vendored directly in this repo, no internet needed after cloning.
 - `engine/pipelineEngine.js` is a direct, verified port of the originally
   validated Python prototype -- same formula, same rounding, tested
   byte-for-byte identical output on real save data before this rewrite.
