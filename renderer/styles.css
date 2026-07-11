@@ -123,9 +123,10 @@ body {
 }
 .map-modal-close { position: absolute; top: 0.75rem; right: 0.75rem; }
 
-.map-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
-.map-swatch { width: 18px; height: 18px; border-radius: 4px; display: inline-block; }
-.map-team-name { font-size: 1rem; font-weight: 600; }
+.map-header { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 0.75rem; }
+.map-swatch { width: 32px; height: 32px; border-radius: 6px; display: inline-block; }
+.map-logo { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; }
+.map-team-name { font-size: 1.4rem; font-weight: 600; }
 .map-loading { color: var(--text-muted); font-size: 0.85rem; padding: 2rem 0; text-align: center; }
 .map-svg-container { width: 100%; }
 .map-disclaimer { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; }

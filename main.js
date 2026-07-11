@@ -16,6 +16,14 @@ const regionCentroids = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/re
 const teamColors = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/teamColors.json'), 'utf8'));
 const stateToPipeline = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/stateToPipeline.json'), 'utf8'));
 
+// Logo images are never bundled into the app (see build.files in package.json,
+// and .gitignore) -- trademarked assets shouldn't ship inside the exe or the repo.
+// Running from source: project-root/logos. Packaged: a "logos" folder the user
+// creates themselves, sitting right next to the exe (outside app.asar entirely).
+const LOGOS_DIR = app.isPackaged
+  ? path.join(path.dirname(app.getPath('exe')), 'logos')
+  : path.join(__dirname, 'logos');
+
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'pipeline-tool-settings.json');
 
 function loadUserSettings() {
@@ -86,6 +94,7 @@ ipcMain.handle('apply-preset', (event, { settings, presetName }) => applyPreset(
 ipcMain.handle('get-presets', () => PRESETS);
 ipcMain.handle('get-team-colors', () => teamColors);
 ipcMain.handle('get-state-to-pipeline', () => stateToPipeline);
+ipcMain.handle('get-logos-dir', () => LOGOS_DIR);
 
 /**
  * Opens the save directly, reads every team's roster/coaches/prior

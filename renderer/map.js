@@ -101,6 +101,16 @@ async function getStateToPipeline() {
   return stateToPipelineCache;
 }
 
+let logosDirUrlCache = null;
+async function getLogosDirUrl() {
+  if (logosDirUrlCache) return logosDirUrlCache;
+  const absPath = await window.api.getLogosDir();
+  let p = absPath.replace(/\\/g, '/');
+  if (!p.startsWith('/')) p = '/' + p; // Windows drive letters need a leading slash for file://
+  logosDirUrlCache = 'file://' + p;
+  return logosDirUrlCache;
+}
+
 async function getCountyTopology() {
   if (!countyTopologyCache) {
     try {
@@ -143,12 +153,20 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
   container.innerHTML = `
     <div class="map-header">
       <span class="map-swatch" style="background:${baseColor}"></span>
+      <img class="map-logo" alt="" style="display:none">
       <span class="map-team-name">${teamName}</span>
     </div>
     <div class="map-svg-container"></div>
     <div class="map-tier-list"></div>
     <div class="map-disclaimer">Sub-state lines for TX/FL/GA/CA are geography-based approximations, not EA's exact boundaries.</div>
   `;
+
+  const swatchEl = container.querySelector('.map-swatch');
+  const logoImg = container.querySelector('.map-logo');
+  logoImg.onload = () => { logoImg.style.display = 'inline-block'; swatchEl.style.display = 'none'; };
+  logoImg.onerror = () => { logoImg.style.display = 'none'; swatchEl.style.display = 'inline-block'; };
+  const logosDirUrl = await getLogosDirUrl();
+  logoImg.src = `${logosDirUrl}/${encodeURIComponent(teamName)}.png`;
 
   const svgContainer = container.querySelector('.map-svg-container');
   const svg = d3.select(svgContainer).append('svg').attr('viewBox', '0 0 975 610').attr('width', '100%');
@@ -173,12 +191,14 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
   svg.selectAll('.state').data(states.filter((d) => !SPLIT_STATE_FIPS.has(d.id.slice(0, 2)))).join('path')
     .attr('d', path)
     .attr('fill', (d) => {
-      const pipeline = stateToPipeline[d.properties.name];
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      const pipeline = stateToPipeline[stateKey];
       const tier = tiers[pipeline];
       return tier ? tierColor[tier] : noneColor;
     })
     .attr('stroke', (d) => {
-      const pipeline = stateToPipeline[d.properties.name];
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      const pipeline = stateToPipeline[stateKey];
       const tier = tiers[pipeline];
       return borderStrokeFor(tier ? tierColor[tier] : noneColor, isDark);
     })

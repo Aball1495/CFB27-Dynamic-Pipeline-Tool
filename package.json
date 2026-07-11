@@ -22,10 +22,12 @@
     },
     "files": [
       "**/*",
-      "!dist/**"
+      "!dist/**",
+      "!logos/**"
     ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "build/icon.ico"
     }
   }
 }

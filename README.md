@@ -53,7 +53,10 @@ automatically on first launch.
    for each.
 4. **Preview** -- review before/after for every team side by side before
    anything is written. Search/filter and select which teams to actually
-   apply.
+   apply. A **filled dot (●)** next to a team's name means at least one
+   region entered or dropped out of that team's top 10 entirely -- not
+   just a score shifting, but the actual lineup of regions changing. No
+   dot means the same regions stuck around, just with different scores.
 5. **Apply** -- writes a **brand new save file copy** with the recomputed
    values. Your original save is **never opened in write mode** at any
    point in this flow -- the app always works on a fresh copy. Load that
@@ -166,3 +169,25 @@ picker.
 - `engine/pipelineEngine.js` is a direct, verified port of the originally
   validated Python prototype -- same formula, same rounding, tested
   byte-for-byte identical output on real save data before this rewrite.
+- Team logos are included out of the box in the downloaded release --
+  they show up next to team names in the map view. Running from source
+  instead, you'll need to add your own logo images to a `logos/` folder
+  (see `logos/README.md` for the naming convention).
+
+## Changelog
+
+**v0.1.1-beta**
+- Fixed a bug where states with a space in their name (New Mexico, North
+  Carolina, South Carolina, West Virginia, New York, New Jersey, New
+  Hampshire, North Dakota, South Dakota, Rhode Island) weren't showing
+  their assigned tier color on the map, even when correctly listed in the
+  legend below it.
+- Added team logos next to team names in the map view, included out of
+  the box.
+- Bigger, easier-to-read team name and logo in the map view header.
+- Added a custom app icon.
+- Preview list now marks any team whose top-10 regions actually changed
+  (not just scores shifting) with a small dot next to the name.
+
+**v0.1.0-beta**
+- Initial release.

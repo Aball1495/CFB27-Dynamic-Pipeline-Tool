@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   getPresets: () => ipcRenderer.invoke('get-presets'),
   getTeamColors: () => ipcRenderer.invoke('get-team-colors'),
   getStateToPipeline: () => ipcRenderer.invoke('get-state-to-pipeline'),
+  getLogosDir: () => ipcRenderer.invoke('get-logos-dir'),
   runEngine: (savePath, settings) => ipcRenderer.invoke('run-engine', { savePath, settings }),
   commitChanges: (savePath, engineResults, teamNamesToApply, outputDir) =>
     ipcRenderer.invoke('commit-changes', { savePath, engineResults, teamNamesToApply, outputDir }),
