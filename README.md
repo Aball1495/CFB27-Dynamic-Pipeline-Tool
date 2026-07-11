@@ -62,6 +62,20 @@ automatically on first launch.
    point in this flow -- the app always works on a fresh copy. Load that
    new copy in-game to use the recomputed pipelines.
 
+## History
+
+Every time you Apply, that season's results get saved locally (keyed to
+your dynasty, not tied to any one save file's location). The **History**
+button lets you pick any team and scrub through every season you've
+applied so far on the same map view, seeing exactly how its pipeline
+footprint shifted year to year. Regions that climbed a tier show a green
+up arrow, regions that dropped show a red down arrow, and a separate box
+calls out any region that entered or fell out of the top 10 entirely.
+
+History only starts accumulating from whenever you begin using the tool
+-- there's no way to retroactively reconstruct seasons from before you
+started applying changes.
+
 ## Presets, weights, and what each one means
 
 The 4 sliders (Roster composition / Star-weighted quality / Coach
@@ -175,6 +189,24 @@ picker.
   (see `logos/README.md` for the naming convention).
 
 ## Changelog
+
+**v0.2.0-beta**
+- Added a **History** tab: pick any team and scrub through every season
+  you've applied so far on the same map view you already know, with
+  smooth color transitions between seasons.
+- Regions that climbed a tier (or newly entered the top 10) show a green
+  up arrow; regions that dropped a tier show a red down arrow, right in
+  the tier legend.
+- A "New Pipelines" / "Dropped Out Pipelines" box shows any region that
+  entered or fell out of the top 10 entirely since the previous season --
+  catches cases the arrows can't (a region that's gone completely has no
+  tier to show an arrow next to).
+- Each team's card in the main preview now shows its Head Coach,
+  Offensive Coordinator, and Defensive Coordinator by name, along with
+  each one's own pipeline -- something the game itself never surfaces.
+- Fixed the normalized-logo sizing/proportions across the full 138-team
+  set, so every logo reads at a consistent visual weight regardless of
+  how much padding the original image had.
 
 **v0.1.1-beta**
 - Fixed a bug where states with a space in their name (New Mexico, North

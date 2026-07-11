@@ -27,10 +27,34 @@ const TABLE_IDS = {
   schoolPipelineInfluence: 4306,
   player: 4244,
   coach: 4173,
+  franchise: 4553,   // Franchise.LeagueID -- stable per-dynasty numeric ID
+  seasonInfo: 4141,  // SeasonInfo.CurrentSeasonYear -- the actual displayed year
 };
 
 async function openSave(savePath) {
   return Franchise.create(savePath);
+}
+
+/**
+ * A stable numeric ID for this specific dynasty, confirmed against a real
+ * save (Franchise.LeagueID). Used to key the local pipeline-history.json
+ * file so multiple dynasties/saves never mix history together.
+ */
+async function readDynastyCode(franchise) {
+  const table = franchise.getTableById(TABLE_IDS.franchise);
+  await table.readRecords(['LeagueID']);
+  return String(table.records[0].LeagueID);
+}
+
+/**
+ * The actual displayed calendar year for the dynasty's current season
+ * (confirmed against a real save: SeasonInfo.CurrentSeasonYear, which
+ * lines up exactly with BaseCalendarYear + CurrentYear).
+ */
+async function readCurrentSeason(franchise) {
+  const table = franchise.getTableById(TABLE_IDS.seasonInfo);
+  await table.readRecords(['CurrentSeasonYear']);
+  return table.records[0].CurrentSeasonYear;
 }
 
 /**
@@ -111,7 +135,11 @@ async function readCoaches(franchise) {
     if (!relevant.has(r.Position)) continue;
     const ti = r.TeamIndex;
     if (!byTeam[ti]) byTeam[ti] = {};
-    byTeam[ti][r.Position] = { pipeline: r.PrimaryPipeline, seasons: r.SeasonsWithTeam || 0 };
+    byTeam[ti][r.Position] = {
+      pipeline: r.PrimaryPipeline,
+      seasons: r.SeasonsWithTeam || 0,
+      name: `${r.FirstName || ''} ${r.LastName || ''}`.trim(),
+    };
   }
   return byTeam;
 }
@@ -173,4 +201,6 @@ module.exports = {
   readCoaches,
   readPipelineRow,
   writeUpdatedSave,
+  readDynastyCode,
+  readCurrentSeason,
 };

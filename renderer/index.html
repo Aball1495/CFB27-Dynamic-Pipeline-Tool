@@ -106,6 +106,13 @@
       <button id="btn-apply" class="btn btn-danger btn-large" disabled>Apply selected changes&hellip;</button>
       <div id="apply-result" class="apply-result hidden"></div>
     </section>
+
+    <!-- History -->
+    <section class="panel" id="panel-history">
+      <h2>History</h2>
+      <p class="hint">See how a team's pipeline footprint has changed across every season you've applied so far.</p>
+      <button id="btn-open-history" class="btn btn-primary">View history&hellip;</button>
+    </section>
   </main>
 
   <!-- Map modal -->
@@ -113,6 +120,23 @@
     <div class="map-modal-content">
       <button id="btn-close-map" class="btn map-modal-close">&times; Close</button>
       <div id="map-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- History modal -->
+  <div id="history-modal" class="map-modal hidden">
+    <div class="map-modal-content">
+      <button id="btn-close-history" class="btn map-modal-close">&times; Close</button>
+      <div class="history-controls">
+        <select id="history-team-select"></select>
+        <div class="history-season-row">
+          <label for="history-season-slider">Season</label>
+          <input type="range" id="history-season-slider" min="0" max="0" value="0" step="1" />
+          <span id="history-season-out"></span>
+        </div>
+      </div>
+      <div id="history-season-changes" class="history-season-changes"></div>
+      <div id="history-modal-body"></div>
     </div>
   </div>
 

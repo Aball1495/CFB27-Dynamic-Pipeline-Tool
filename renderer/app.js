@@ -193,7 +193,7 @@ function renderPreview() {
   const teamNames = Object.keys(engineResults).filter((n) => n.toLowerCase().includes(search)).sort();
 
   for (const teamName of teamNames) {
-    const { prior, after } = engineResults[teamName];
+    const { prior, after, coaches } = engineResults[teamName];
     const priorRegions = new Set(prior.map((e) => e[1]));
     const afterRegions = new Set(after.map((e) => e[1]));
     const changed = [...priorRegions].some((r) => !afterRegions.has(r)) || [...afterRegions].some((r) => !priorRegions.has(r));
@@ -223,6 +223,24 @@ function renderPreview() {
     mapBtn.textContent = 'View map';
     mapBtn.addEventListener('click', () => openMapModal(teamName, after));
     nameCell.appendChild(mapBtn);
+
+    const coachPositions = [
+      ['HeadCoach', 'HC'],
+      ['OffensiveCoordinator', 'OC'],
+      ['DefensiveCoordinator', 'DC'],
+    ];
+    const coachRows = coachPositions.map(([pos, label]) => {
+      const c = coaches && coaches[pos];
+      if (!c || !c.name) return '';
+      return `<div class="coach-line">
+        <div class="coach-top"><span class="coach-pos">${label}</span><span class="coach-name">${c.name}</span></div>
+        <div class="coach-pipeline">${c.pipeline || '\u2014'}</div>
+      </div>`;
+    }).filter(Boolean).join('');
+    const coachesBlock = document.createElement('div');
+    coachesBlock.className = 'team-coaches';
+    coachesBlock.innerHTML = coachRows;
+    nameCell.appendChild(coachesBlock);
 
     const beforeCell = document.createElement('div');
     beforeCell.innerHTML = '<div class="team-col-label">Before</div>' + prior.map(([tier, region, val]) =>
@@ -259,6 +277,155 @@ document.getElementById('btn-close-map').addEventListener('click', () => {
 });
 document.getElementById('map-modal').addEventListener('click', (e) => {
   if (e.target.id === 'map-modal') e.target.classList.add('hidden');
+});
+
+// ---- History modal ----
+
+let currentDynastyHistory = {}; // { [teamName]: { [season]: { [region]: tier } } }
+
+async function openHistoryModal() {
+  if (!savePath) {
+    alert('Select a save file first -- history is tracked per dynasty, and the tool needs to know which one.');
+    return;
+  }
+  const modal = document.getElementById('history-modal');
+  const teamSelect = document.getElementById('history-team-select');
+  modal.classList.remove('hidden');
+
+  const dynastyCode = await window.api.getDynastyCodeForSave(savePath);
+  const fullHistory = await window.api.getHistory();
+  currentDynastyHistory = fullHistory[dynastyCode] || {};
+
+  const teamNames = Object.keys(currentDynastyHistory).sort();
+  if (teamNames.length === 0) {
+    document.getElementById('history-modal-body').innerHTML =
+      '<p class="hint">No history yet for this dynasty -- apply changes at least once, then come back here to see it.</p>';
+    teamSelect.innerHTML = '';
+    document.querySelector('.history-controls').style.display = 'none';
+    return;
+  }
+  document.querySelector('.history-controls').style.display = '';
+
+  teamSelect.innerHTML = teamNames.map((t) => `<option value="${t}">${t}</option>`).join('');
+  teamSelect.value = teamNames[0];
+  refreshHistorySeasonRange();
+}
+
+let currentHistoryTeam = null;
+let lastRenderedSeason = null;
+
+function refreshHistorySeasonRange() {
+  const teamName = document.getElementById('history-team-select').value;
+  const seasons = Object.keys(currentDynastyHistory[teamName] || {}).map(Number).sort((a, b) => a - b);
+  const slider = document.getElementById('history-season-slider');
+  if (seasons.length === 0) return;
+  slider.min = 0;
+  slider.max = seasons.length - 1;
+  slider.value = seasons.length - 1; // default to the most recent season
+  slider.dataset.seasons = JSON.stringify(seasons);
+  currentHistoryTeam = null; // force a full render for the new team
+  lastRenderedSeason = null;
+  renderHistoryMapForSelection();
+}
+
+/**
+ * Older history entries (recorded before coach tracking) are a flat
+ * { region: tier, ... } object. Newer ones are { tiers: {...}, coaches:
+ * {...} }. This normalizes either shape so the rest of the code never
+ * needs to care which one it's looking at.
+ */
+function extractSeasonData(seasonEntry) {
+  if (seasonEntry && typeof seasonEntry === 'object' && 'tiers' in seasonEntry) {
+    return { tiers: seasonEntry.tiers || {}, coaches: seasonEntry.coaches || null };
+  }
+  return { tiers: seasonEntry || {}, coaches: null };
+}
+
+function renderHistoryMapForSelection() {
+  const teamName = document.getElementById('history-team-select').value;
+  const slider = document.getElementById('history-season-slider');
+  const seasons = JSON.parse(slider.dataset.seasons || '[]');
+  const season = seasons[Number(slider.value)];
+  if (season === undefined) return;
+
+  // A mouse drag fires many 'input' events that resolve to the same
+  // quantized season (only 2-3 real positions on the whole track) --
+  // without this guard, each one re-triggers the recolor + legend
+  // rebuild, which is what made dragging feel jankier than arrow keys
+  // (which naturally fire once per discrete step).
+  if (season === lastRenderedSeason && teamName === currentHistoryTeam) return;
+  lastRenderedSeason = season;
+
+  document.getElementById('history-season-out').textContent = season;
+
+  const { tiers: tiersByRegion } = extractSeasonData(currentDynastyHistory[teamName][String(season)]);
+  const fakeAfterEntries = Object.entries(tiersByRegion).map(([region, tier]) => [tier, region, 0]);
+
+  const seasonIndex = Number(slider.value);
+  const prevSeason = seasonIndex > 0 ? seasons[seasonIndex - 1] : null;
+  const { tiers: prevTiersByRegionRaw } = prevSeason !== null
+    ? extractSeasonData(currentDynastyHistory[teamName][String(prevSeason)])
+    : { tiers: null };
+  const prevTiersByRegion = prevSeason !== null ? prevTiersByRegionRaw : null;
+  const fakePreviousEntries = prevTiersByRegion
+    ? Object.entries(prevTiersByRegion).map(([region, tier]) => [tier, region, 0])
+    : null;
+
+  const colors = teamColors[teamName];
+  const baseColor = colors ? colors[0] : '#888888';
+  const body = document.getElementById('history-modal-body');
+
+  renderSeasonChangesSummary(tiersByRegion, prevTiersByRegion);
+
+  if (currentHistoryTeam === teamName) {
+    // Same team, just a different season -- recolor in place so the CSS
+    // transition on path fill/stroke actually has something to animate.
+    window.PipelineMap.updateTeamMapColors(body, baseColor, fakeAfterEntries, fakePreviousEntries);
+  } else {
+    // New team (or first open) -- full rebuild, including the header/logo.
+    currentHistoryTeam = teamName;
+    window.PipelineMap.renderTeamMap(body, teamName, baseColor, fakeAfterEntries, fakePreviousEntries);
+  }
+}
+
+/**
+ * Shows which regions entered or dropped out of the top 10 entirely
+ * between the previous season and this one -- distinct from (and a
+ * complement to) the up/down arrows in the tier list, which can only
+ * mark regions still present in the CURRENT season. A region that fell
+ * out of the top 10 completely has nowhere to show an arrow, so this is
+ * the only place that gap gets surfaced.
+ */
+function renderSeasonChangesSummary(currentTiersByRegion, prevTiersByRegion) {
+  const el = document.getElementById('history-season-changes');
+  if (!prevTiersByRegion) {
+    el.innerHTML = '<p class="hint">This is the first tracked season for this team -- nothing to compare yet.</p>';
+    return;
+  }
+  const currentRegions = new Set(Object.keys(currentTiersByRegion));
+  const prevRegions = new Set(Object.keys(prevTiersByRegion));
+  const newRegions = [...currentRegions].filter((r) => !prevRegions.has(r)).sort();
+  const droppedRegions = [...prevRegions].filter((r) => !currentRegions.has(r)).sort();
+
+  if (newRegions.length === 0 && droppedRegions.length === 0) {
+    el.innerHTML = '<p class="hint">No pipelines gained or lost this season.</p>';
+    return;
+  }
+
+  el.innerHTML = `
+    ${newRegions.length ? `<div class="season-change-row"><span class="season-change-label new">New Pipelines</span>${newRegions.join(', ')}</div>` : ''}
+    ${droppedRegions.length ? `<div class="season-change-row"><span class="season-change-label dropped">Dropped Out Pipelines</span>${droppedRegions.join(', ')}</div>` : ''}
+  `;
+}
+
+document.getElementById('btn-open-history').addEventListener('click', openHistoryModal);
+document.getElementById('history-team-select').addEventListener('change', refreshHistorySeasonRange);
+document.getElementById('history-season-slider').addEventListener('input', renderHistoryMapForSelection);
+document.getElementById('btn-close-history').addEventListener('click', () => {
+  document.getElementById('history-modal').classList.add('hidden');
+});
+document.getElementById('history-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'history-modal') e.target.classList.add('hidden');
 });
 
 document.getElementById('chk-select-all').addEventListener('change', (e) => {

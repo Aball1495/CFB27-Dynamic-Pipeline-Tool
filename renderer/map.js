@@ -101,6 +101,37 @@ async function getStateToPipeline() {
   return stateToPipelineCache;
 }
 
+/**
+ * Compares two seasons' region->tier assignments and returns a Map of
+ * region -> 'up' | 'down' for every region present in currentEntries
+ * whose status improved or declined since previousEntries. A region
+ * that's newly present (wasn't tracked at all in the previous season)
+ * counts as 'up', since entering the top 10 is itself a gain.
+ * previousEntries can be null/undefined -- in that case the map is empty.
+ */
+function computeRegionChangeDirections(currentEntries, previousEntries) {
+  const directions = new Map();
+  if (!previousEntries) return directions;
+
+  const tierRank = {};
+  TIER_NAMES.forEach((t, i) => { tierRank[t] = i; });
+
+  const prevTiers = {};
+  for (const [tier, region] of previousEntries) prevTiers[region] = tier;
+
+  for (const [tier, region] of currentEntries) {
+    const prevTier = prevTiers[region];
+    if (prevTier === undefined) {
+      directions.set(region, 'up'); // newly entered the top 10
+    } else if (tierRank[tier] > tierRank[prevTier]) {
+      directions.set(region, 'up');
+    } else if (tierRank[tier] < tierRank[prevTier]) {
+      directions.set(region, 'down');
+    }
+  }
+  return directions;
+}
+
 let logosDirUrlCache = null;
 async function getLogosDirUrl() {
   if (logosDirUrlCache) return logosDirUrlCache;
@@ -133,7 +164,7 @@ async function getCountyTopology() {
  * @param {string} baseColor - team's primary hex color
  * @param {Array} afterEntries - [[tierName, regionName, value], ...] (the engine's "after" output)
  */
-async function renderTeamMap(container, teamName, baseColor, afterEntries) {
+async function renderTeamMap(container, teamName, baseColor, afterEntries, previousEntries) {
   container.innerHTML = '<div class="map-loading">Loading map data\u2026</div>';
 
   const stateToPipeline = await getStateToPipeline();
@@ -141,6 +172,7 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
 
   const tiers = {};
   for (const [tier, region] of afterEntries) tiers[region] = tier;
+  const changeDirections = computeRegionChangeDirections(afterEntries, previousEntries);
 
   const ramp = sharpenedRamp(baseColor);
   const tierColor = {};
@@ -190,6 +222,10 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
 
   svg.selectAll('.state').data(states.filter((d) => !SPLIT_STATE_FIPS.has(d.id.slice(0, 2)))).join('path')
     .attr('d', path)
+    .attr('data-region', (d) => {
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      return stateToPipeline[stateKey] || '';
+    })
     .attr('fill', (d) => {
       const stateKey = d.properties.name.replace(/[\s']/g, '');
       const pipeline = stateToPipeline[stateKey];
@@ -209,6 +245,7 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
     const fillC = tier ? tierColor[tier] : noneColor;
     svg.append('path')
       .attr('d', path({ type: 'MultiPolygon', coordinates: m.geo.coordinates || [m.geo] }))
+      .attr('data-region', m.label)
       .attr('fill', fillC)
       .attr('stroke', borderStrokeFor(fillC, isDark))
       .attr('stroke-width', 1.1);
@@ -218,13 +255,22 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
   // about the map showing more/fewer shapes than real regions (multi-state
   // pipelines like Tidewater or Pacific Northwest span several states).
   const tierListEl = container.querySelector('.map-tier-list');
+  tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections);
+}
+
+function buildTierListHTML(afterEntries, tierColor, changeDirections) {
+  const directions = changeDirections || new Map();
   const byTier = {};
   for (const [tier, region] of afterEntries) {
     if (!byTier[tier]) byTier[tier] = [];
-    byTier[tier].push(region);
+    const dir = directions.get(region);
+    const marker = dir === 'up' ? '<span class="region-up">\u25B2</span>'
+      : dir === 'down' ? '<span class="region-down">\u25BC</span>'
+      : '';
+    byTier[tier].push(`${region}${marker}`);
   }
   const orderedTiers = [...TIER_NAMES].reverse().filter((t) => byTier[t]);
-  tierListEl.innerHTML = orderedTiers.map((tier) => `
+  return orderedTiers.map((tier) => `
     <div class="tier-group">
       <div class="tier-group-heading">
         <span class="tier-swatch-lg" style="background:${tierColor[tier]}"></span>
@@ -235,4 +281,41 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries) {
   `).join('');
 }
 
-window.PipelineMap = { renderTeamMap, sharpenedRamp };
+/**
+ * Recolors an already-rendered map in place, without rebuilding the SVG --
+ * lets the CSS transition on path fill/stroke actually animate between
+ * old and new colors. Use this for season-to-season scrubbing (same team,
+ * just different data) instead of calling renderTeamMap again, which
+ * tears down and recreates every path with its final color already set
+ * (nothing to transition from).
+ *
+ * Assumes renderTeamMap was already called once for this container/team
+ * (so the paths, their data-region tags, and the header/disclaimer exist).
+ */
+function updateTeamMapColors(container, baseColor, afterEntries, previousEntries) {
+  const tiers = {};
+  for (const [tier, region] of afterEntries) tiers[region] = tier;
+  const changeDirections = computeRegionChangeDirections(afterEntries, previousEntries);
+
+  const ramp = sharpenedRamp(baseColor);
+  const tierColor = {};
+  TIER_NAMES.forEach((t, i) => { tierColor[t] = ramp[i - 1] || 'transparent'; });
+
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const noneColor = isDark ? '#383835' : '#e1e0d9';
+
+  const paths = container.querySelectorAll('.map-svg-container path[data-region]');
+  paths.forEach((p) => {
+    const region = p.getAttribute('data-region');
+    const tier = region ? tiers[region] : undefined;
+    const fillC = tier ? tierColor[tier] : noneColor;
+    p.setAttribute('fill', fillC);
+    p.setAttribute('stroke', borderStrokeFor(fillC, isDark));
+    p.setAttribute('stroke-width', 1.1);
+  });
+
+  const tierListEl = container.querySelector('.map-tier-list');
+  if (tierListEl) tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections);
+}
+
+window.PipelineMap = { renderTeamMap, updateTeamMapColors, sharpenedRamp };

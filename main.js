@@ -10,7 +10,10 @@ const {
   readCoaches,
   readPipelineRow,
   writeUpdatedSave,
+  readDynastyCode,
+  readCurrentSeason,
 } = require('./io/saveFile');
+const { recordSnapshot } = require('./io/pipelineHistory');
 
 const regionCentroids = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/regionCentroids.json'), 'utf8'));
 const teamColors = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/teamColors.json'), 'utf8'));
@@ -96,6 +99,13 @@ ipcMain.handle('get-team-colors', () => teamColors);
 ipcMain.handle('get-state-to-pipeline', () => stateToPipeline);
 ipcMain.handle('get-logos-dir', () => LOGOS_DIR);
 
+const { loadHistory } = require('./io/pipelineHistory');
+ipcMain.handle('get-history', () => loadHistory(app));
+ipcMain.handle('get-dynasty-code-for-save', async (event, { savePath }) => {
+  const franchise = await openSave(savePath);
+  return readDynastyCode(franchise);
+});
+
 /**
  * Opens the save directly, reads every team's roster/coaches/prior
  * pipeline data, and runs the engine for each. Does NOT write anything --
@@ -126,6 +136,7 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
       rows4306: teamInfo.rows4306,
       prior,
       after,
+      coaches, // { HeadCoach: {name, pipeline, seasons}, OffensiveCoordinator: {...}, DefensiveCoordinator: {...} }
     };
   }
   return results;
@@ -147,5 +158,27 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
       updatesByRow4306[rowIndex] = { InfluenceLevel: tier, Pipeline: pipeline, InfluenceValue: value };
     });
   }
-  return writeUpdatedSave(savePath, updatesByRow4306, outputDir);
+  const writeResult = await writeUpdatedSave(savePath, updatesByRow4306, outputDir);
+
+  // Read-only pass, separate from the write above, just to key this
+  // season's history snapshot. Never touches write mode on the original.
+  let dynastyCode = null;
+  let season = null;
+  try {
+    const readFranchise = await openSave(savePath);
+    dynastyCode = await readDynastyCode(readFranchise);
+    season = await readCurrentSeason(readFranchise);
+  } catch (err) {
+    console.error('Could not read dynasty code/season for history tracking:', err);
+  }
+
+  if (dynastyCode && season && writeResult && writeResult.success !== false) {
+    for (const teamName of teamNamesToApply) {
+      const result = engineResults[teamName];
+      if (!result) continue;
+      recordSnapshot(app, dynastyCode, season, teamName, result.after);
+    }
+  }
+
+  return writeResult;
 });
