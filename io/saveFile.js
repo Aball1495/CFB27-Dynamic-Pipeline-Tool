@@ -2,15 +2,31 @@
  * Direct save-file read/write, using madden-franchise. Replaces the entire
  * xlsx export/import workflow -- no Franchise Editor exports needed at all.
  *
- * Every table is accessed by its numeric ID (not name), since we proved
- * name-based lookup misses most records for some tables (Team in
- * particular only found 9/143 by name, but all 143 by ID). These IDs have
- * been stable and correct since the very start of this project:
- *   Team                     -> 6334
- *   SchoolPipelineInfluence[] (list) -> 5919
- *   SchoolPipelineInfluence   -> 4306
- *   Player                    -> 4244
- *   Coach                     -> 4173
+ * Tables are looked up by UNIQUE ID, never by name and never by numeric
+ * table ID. Name-based lookup is unreliable in this schema (proved early
+ * in this project -- Team in particular only found 9/143 records by name,
+ * but all 143 by ID). Numeric table ID is NOT safe either, on advice from
+ * the CFB27 modding community: that number is assigned per game build and
+ * can shift on a patch, which would make getTableById() silently return
+ * the WRONG table after an update -- not an error, just quietly wrong
+ * data, which is a much worse failure mode than a crash since it could
+ * write garbage into someone's save. Unique ID (found in a table's
+ * header, distinct from its table ID) is the community-recommended
+ * stable identifier and is what every lookup below actually uses.
+ *
+ * Confirmed against a real save (2026-07 build) -- both values shown for
+ * reference, but only uniqueId is actually used for lookups below:
+ *   Team                       -> tableId 6334,  uniqueId 3359508968
+ *   SchoolPipelineInfluence[]  -> tableId 5919,  uniqueId 3284177001
+ *   SchoolPipelineInfluence    -> tableId 4306,  uniqueId 4261714800
+ *   Player                     -> tableId 4244,  uniqueId 1612938518
+ *   Coach                      -> tableId 4173,  uniqueId 1860529246
+ *   Franchise                  -> tableId 4553,  uniqueId 2226370608
+ *   SeasonInfo                 -> tableId 4141,  uniqueId 3123991521
+ * If a future game update ever changes the underlying schema enough that
+ * these uniqueIds themselves stop resolving, getTableByUniqueId() throws
+ * rather than silently returning something wrong -- a loud, obvious
+ * failure instead of quiet data corruption.
  *
  * SAFETY: writeUpdatedSave() NEVER modifies your original save file. It
  * always works on a copy, and the original path you opened is never
@@ -21,14 +37,14 @@ const fs = require('fs');
 const path = require('path');
 const Franchise = require('madden-franchise');
 
-const TABLE_IDS = {
-  team: 6334,
-  schoolPipelineInfluenceList: 5919,
-  schoolPipelineInfluence: 4306,
-  player: 4244,
-  coach: 4173,
-  franchise: 4553,   // Franchise.LeagueID -- stable per-dynasty numeric ID
-  seasonInfo: 4141,  // SeasonInfo.CurrentSeasonYear -- the actual displayed year
+const TABLE_UNIQUE_IDS = {
+  team: 3359508968,
+  schoolPipelineInfluenceList: 3284177001,
+  schoolPipelineInfluence: 4261714800,
+  player: 1612938518,
+  coach: 1860529246,
+  franchise: 2226370608,
+  seasonInfo: 3123991521,
 };
 
 async function openSave(savePath) {
@@ -41,7 +57,7 @@ async function openSave(savePath) {
  * file so multiple dynasties/saves never mix history together.
  */
 async function readDynastyCode(franchise) {
-  const table = franchise.getTableById(TABLE_IDS.franchise);
+  const table = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.franchise);
   await table.readRecords(['LeagueID']);
   return String(table.records[0].LeagueID);
 }
@@ -52,7 +68,7 @@ async function readDynastyCode(franchise) {
  * lines up exactly with BaseCalendarYear + CurrentYear).
  */
 async function readCurrentSeason(franchise) {
-  const table = franchise.getTableById(TABLE_IDS.seasonInfo);
+  const table = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.seasonInfo);
   await table.readRecords(['CurrentSeasonYear']);
   return table.records[0].CurrentSeasonYear;
 }
@@ -65,6 +81,15 @@ async function readCurrentSeason(franchise) {
  * SchoolPipelineInfluence, using the field's built-in .referenceData
  * (confirmed reliable -- no manual bit-math needed for this part).
  *
+ * Reference pointers store their OWN copy of the target table's numeric
+ * tableId (that's just how this binary format encodes "this field points
+ * at row N of table X"). We validate against each table's actual,
+ * freshly-resolved .header.tableId rather than a hardcoded constant --
+ * since we just looked that table up by its stable uniqueId, its
+ * .header.tableId is guaranteed correct for whatever this specific file's
+ * game build actually assigned, even if that number differs from a
+ * previous game version.
+ *
  * Returns:
  *   {
  *     teamsByIndex: { [teamIndex]: { displayName, rows4306: [10 row numbers] } },
@@ -72,14 +97,17 @@ async function readCurrentSeason(franchise) {
  *   }
  */
 async function readTeamPipelineMapping(franchise) {
-  const teamTable = franchise.getTableById(TABLE_IDS.team);
+  const teamTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
   await teamTable.readRecords();
 
-  const listTable = franchise.getTableById(TABLE_IDS.schoolPipelineInfluenceList);
+  const listTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluenceList);
   await listTable.readRecords();
 
-  const pipelineInfluenceTable = franchise.getTableById(TABLE_IDS.schoolPipelineInfluence);
+  const pipelineInfluenceTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluence);
   await pipelineInfluenceTable.readRecords();
+
+  const listTableId = listTable.header.tableId;
+  const pipelineTableId = pipelineInfluenceTable.header.tableId;
 
   const teamsByIndex = {};
 
@@ -87,8 +115,8 @@ async function readTeamPipelineMapping(franchise) {
     if (!teamRecord.DisplayName || teamRecord.TeamIndex === 255) continue; // skip placeholder rows
 
     const listField = teamRecord.getFieldByKey('SchoolPipelineInfluenceList');
-    const listRef = listField.referenceData; // { tableId: 5919, rowNumber: N }
-    if (!listRef || listRef.tableId !== TABLE_IDS.schoolPipelineInfluenceList) continue;
+    const listRef = listField.referenceData; // { tableId, rowNumber }
+    if (!listRef || listRef.tableId !== listTableId) continue;
 
     const listRecord = listTable.records[listRef.rowNumber];
     if (!listRecord) continue;
@@ -98,7 +126,7 @@ async function readTeamPipelineMapping(franchise) {
       const field = listRecord.getFieldByKey(`SchoolPipelineInfluence${i}`);
       if (!field) continue;
       const ref = field.referenceData;
-      if (ref && ref.tableId === TABLE_IDS.schoolPipelineInfluence) {
+      if (ref && ref.tableId === pipelineTableId) {
         rows4306.push(ref.rowNumber);
       }
     }
@@ -114,7 +142,7 @@ async function readTeamPipelineMapping(franchise) {
 
 /** Player table -> { [teamIndex]: [{ pipeline, state, star }, ...] } */
 async function readPlayers(franchise) {
-  const table = franchise.getTableById(TABLE_IDS.player);
+  const table = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.player);
   await table.readRecords();
   const byTeam = {};
   for (const r of table.records) {
@@ -127,7 +155,7 @@ async function readPlayers(franchise) {
 
 /** Coach table -> { [teamIndex]: { HeadCoach: {...}, OffensiveCoordinator: {...}, DefensiveCoordinator: {...} } } */
 async function readCoaches(franchise) {
-  const table = franchise.getTableById(TABLE_IDS.coach);
+  const table = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.coach);
   await table.readRecords();
   const byTeam = {};
   const relevant = new Set(['HeadCoach', 'OffensiveCoordinator', 'DefensiveCoordinator']);
@@ -176,7 +204,7 @@ async function writeUpdatedSave(savePath, updatesByRow4306, outputDir) {
   fs.copyFileSync(savePath, outputPath);
 
   const franchise = await Franchise.create(outputPath);
-  const pipelineInfluenceTable = franchise.getTableById(TABLE_IDS.schoolPipelineInfluence);
+  const pipelineInfluenceTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluence);
   await pipelineInfluenceTable.readRecords();
 
   for (const [rowStr, update] of Object.entries(updatesByRow4306)) {
@@ -194,7 +222,7 @@ async function writeUpdatedSave(savePath, updatesByRow4306, outputDir) {
 }
 
 module.exports = {
-  TABLE_IDS,
+  TABLE_UNIQUE_IDS,
   openSave,
   readTeamPipelineMapping,
   readPlayers,
