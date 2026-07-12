@@ -48,6 +48,7 @@ function defaultSettings() {
     decay: 0.75,                  // fraction of prior score kept each preseason
     tierCutoffs: DEFAULT_TIER_CUTOFFS.slice(),
     geoRadius: 300,                // miles; distance at which geo bonus has decayed to ~1/3
+    mapColorScheme: 'team',        // 'team' | 'game' -- how the map/legend colors tiers
   };
 }
 

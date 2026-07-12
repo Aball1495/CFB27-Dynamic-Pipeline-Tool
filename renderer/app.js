@@ -32,17 +32,30 @@ const sliderIds = ['wRoster', 'wStar', 'wCoach', 'wGeo'];
 function syncSlidersFromSettings() {
   for (const id of sliderIds) {
     document.getElementById(`slider-${id}`).value = settings[id];
-    document.getElementById(`out-${id}`).textContent = settings[id].toFixed(2);
+    document.getElementById(`num-${id}`).value = settings[id].toFixed(2);
   }
   document.getElementById('chk-hc').checked = settings.coachInclude.HeadCoach;
   document.getElementById('chk-oc').checked = settings.coachInclude.OffensiveCoordinator;
   document.getElementById('chk-dc').checked = settings.coachInclude.DefensiveCoordinator;
+
+  document.getElementById('slider-coachWeightHC').value = settings.coachWeight.HeadCoach;
+  document.getElementById('num-coachWeightHC').value = settings.coachWeight.HeadCoach.toFixed(2);
+  document.getElementById('slider-coachWeightOC').value = settings.coachWeight.OffensiveCoordinator;
+  document.getElementById('num-coachWeightOC').value = settings.coachWeight.OffensiveCoordinator.toFixed(2);
+  document.getElementById('slider-coachWeightDC').value = settings.coachWeight.DefensiveCoordinator;
+  document.getElementById('num-coachWeightDC').value = settings.coachWeight.DefensiveCoordinator.toFixed(2);
+
   document.getElementById('select-ramp-mode').value = settings.coachRampMode;
   document.getElementById('input-ramp-seasons').value = settings.coachRampSeasons;
   document.getElementById('slider-decay').value = settings.decay;
-  document.getElementById('out-decay').textContent = settings.decay.toFixed(2);
+  document.getElementById('num-decay').value = settings.decay.toFixed(2);
   document.getElementById('slider-geoRadius').value = settings.geoRadius;
-  document.getElementById('out-geoRadius').textContent = `${settings.geoRadius}mi`;
+  document.getElementById('num-geoRadius').value = settings.geoRadius;
+
+  const scheme = settings.mapColorScheme || 'team';
+  document.getElementById('map-color-scheme-toggle').value = scheme;
+  document.getElementById('history-color-scheme-toggle').value = scheme;
+
   checkWeightSum();
 }
 
@@ -79,10 +92,38 @@ function presetLabelFor(key) {
   }[key] || key;
 }
 
+/**
+ * Keeps a range slider and a number input showing the same value, in
+ * either direction -- dragging the slider updates the number box, typing
+ * an exact value in the number box moves the slider to match. onChange
+ * receives the new numeric value and is responsible for updating
+ * `settings`, persisting, and any side effects (weight-sum check, preset
+ * label, re-render, etc.).
+ */
+function bindSliderNumberPair(sliderId, numId, onChange) {
+  const slider = document.getElementById(sliderId);
+  const num = document.getElementById(numId);
+  const decimals = (slider.step && slider.step.includes('.')) ? slider.step.split('.')[1].length : 0;
+
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    num.value = decimals > 0 ? v.toFixed(decimals) : v;
+    onChange(v);
+  });
+  num.addEventListener('input', () => {
+    const raw = parseFloat(num.value);
+    if (Number.isNaN(raw)) return;
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const v = Math.min(max, Math.max(min, raw));
+    slider.value = v;
+    onChange(v);
+  });
+}
+
 for (const id of sliderIds) {
-  document.getElementById(`slider-${id}`).addEventListener('input', (e) => {
-    settings[id] = parseFloat(e.target.value);
-    document.getElementById(`out-${id}`).textContent = settings[id].toFixed(2);
+  bindSliderNumberPair(`slider-${id}`, `num-${id}`, (v) => {
+    settings[id] = v;
     checkWeightSum();
     updatePresetLabel();
     window.api.saveSettings(settings);
@@ -101,18 +142,51 @@ document.querySelectorAll('.preset-btn').forEach((btn) => {
 document.getElementById('chk-hc').addEventListener('change', (e) => { settings.coachInclude.HeadCoach = e.target.checked; window.api.saveSettings(settings); });
 document.getElementById('chk-oc').addEventListener('change', (e) => { settings.coachInclude.OffensiveCoordinator = e.target.checked; window.api.saveSettings(settings); });
 document.getElementById('chk-dc').addEventListener('change', (e) => { settings.coachInclude.DefensiveCoordinator = e.target.checked; window.api.saveSettings(settings); });
+
+bindSliderNumberPair('slider-coachWeightHC', 'num-coachWeightHC', (v) => {
+  settings.coachWeight.HeadCoach = v;
+  window.api.saveSettings(settings);
+});
+bindSliderNumberPair('slider-coachWeightOC', 'num-coachWeightOC', (v) => {
+  settings.coachWeight.OffensiveCoordinator = v;
+  window.api.saveSettings(settings);
+});
+bindSliderNumberPair('slider-coachWeightDC', 'num-coachWeightDC', (v) => {
+  settings.coachWeight.DefensiveCoordinator = v;
+  window.api.saveSettings(settings);
+});
+
 document.getElementById('select-ramp-mode').addEventListener('change', (e) => { settings.coachRampMode = e.target.value; window.api.saveSettings(settings); });
 document.getElementById('input-ramp-seasons').addEventListener('change', (e) => { settings.coachRampSeasons = parseInt(e.target.value, 10); window.api.saveSettings(settings); });
-document.getElementById('slider-decay').addEventListener('input', (e) => {
-  settings.decay = parseFloat(e.target.value);
-  document.getElementById('out-decay').textContent = settings.decay.toFixed(2);
+
+bindSliderNumberPair('slider-decay', 'num-decay', (v) => {
+  settings.decay = v;
   window.api.saveSettings(settings);
 });
-document.getElementById('slider-geoRadius').addEventListener('input', (e) => {
-  settings.geoRadius = parseInt(e.target.value, 10);
-  document.getElementById('out-geoRadius').textContent = `${settings.geoRadius}mi`;
+bindSliderNumberPair('slider-geoRadius', 'num-geoRadius', (v) => {
+  settings.geoRadius = Math.round(v);
   window.api.saveSettings(settings);
 });
+
+// ---- Map color scheme (team colors vs. the game's own 1-5 pin styling) ----
+
+function applyMapColorScheme(scheme) {
+  settings.mapColorScheme = scheme;
+  document.getElementById('map-color-scheme-toggle').value = scheme;
+  document.getElementById('history-color-scheme-toggle').value = scheme;
+  window.api.saveSettings(settings);
+  // Re-render whichever map is currently visible so the change shows immediately.
+  if (!document.getElementById('map-modal').classList.contains('hidden') && lastOpenedMapTeam) {
+    openMapModal(lastOpenedMapTeam, engineResults[lastOpenedMapTeam].after);
+  }
+  if (!document.getElementById('history-modal').classList.contains('hidden')) {
+    currentHistoryTeam = null; // force a full rebuild with the new color scheme
+    lastRenderedSeason = null;
+    renderHistoryMapForSelection();
+  }
+}
+document.getElementById('map-color-scheme-toggle').addEventListener('change', (e) => applyMapColorScheme(e.target.value));
+document.getElementById('history-color-scheme-toggle').addEventListener('change', (e) => applyMapColorScheme(e.target.value));
 
 // ---- Run engine ----
 
@@ -185,18 +259,28 @@ function hslToHex(h, l, s) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
+function isTeamChanged(teamName) {
+  const { prior, after } = engineResults[teamName];
+  const priorRegions = new Set(prior.map((e) => e[1]));
+  const afterRegions = new Set(after.map((e) => e[1]));
+  return [...priorRegions].some((r) => !afterRegions.has(r)) || [...afterRegions].some((r) => !priorRegions.has(r));
+}
+
 function renderPreview() {
   const list = document.getElementById('preview-list');
   list.innerHTML = '';
   const search = document.getElementById('team-search').value.toLowerCase();
+  const changedOnly = document.getElementById('chk-changed-only').checked;
 
-  const teamNames = Object.keys(engineResults).filter((n) => n.toLowerCase().includes(search)).sort();
+  const teamNames = Object.keys(engineResults)
+    .filter((n) => n.toLowerCase().includes(search))
+    .filter((n) => !changedOnly || isTeamChanged(n))
+    .sort();
 
   for (const teamName of teamNames) {
     const { prior, after, coaches } = engineResults[teamName];
+    const changed = isTeamChanged(teamName);
     const priorRegions = new Set(prior.map((e) => e[1]));
-    const afterRegions = new Set(after.map((e) => e[1]));
-    const changed = [...priorRegions].some((r) => !afterRegions.has(r)) || [...afterRegions].some((r) => !priorRegions.has(r));
 
     const row = document.createElement('div');
     row.className = 'team-row';
@@ -260,16 +344,20 @@ function renderPreview() {
 }
 
 document.getElementById('team-search').addEventListener('input', renderPreview);
+document.getElementById('chk-changed-only').addEventListener('change', renderPreview);
 
 // ---- Map modal ----
+
+let lastOpenedMapTeam = null;
 
 function openMapModal(teamName, afterEntries) {
   const modal = document.getElementById('map-modal');
   const body = document.getElementById('map-modal-body');
   modal.classList.remove('hidden');
+  lastOpenedMapTeam = teamName;
   const colors = teamColors[teamName];
   const baseColor = colors ? colors[0] : '#888888';
-  window.PipelineMap.renderTeamMap(body, teamName, baseColor, afterEntries);
+  window.PipelineMap.renderTeamMap(body, teamName, baseColor, afterEntries, null, settings.mapColorScheme);
 }
 
 document.getElementById('btn-close-map').addEventListener('click', () => {
@@ -380,11 +468,11 @@ function renderHistoryMapForSelection() {
   if (currentHistoryTeam === teamName) {
     // Same team, just a different season -- recolor in place so the CSS
     // transition on path fill/stroke actually has something to animate.
-    window.PipelineMap.updateTeamMapColors(body, baseColor, fakeAfterEntries, fakePreviousEntries);
+    window.PipelineMap.updateTeamMapColors(body, baseColor, fakeAfterEntries, fakePreviousEntries, settings.mapColorScheme);
   } else {
     // New team (or first open) -- full rebuild, including the header/logo.
     currentHistoryTeam = teamName;
-    window.PipelineMap.renderTeamMap(body, teamName, baseColor, fakeAfterEntries, fakePreviousEntries);
+    window.PipelineMap.renderTeamMap(body, teamName, baseColor, fakeAfterEntries, fakePreviousEntries, settings.mapColorScheme);
   }
 }
 

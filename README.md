@@ -188,7 +188,40 @@ picker.
   instead, you'll need to add your own logo images to a `logos/` folder
   (see `logos/README.md` for the naming convention).
 
+## Credits
+
+The "Game style" map color option (an alternative to the default
+team-colored map) is inspired by
+[CollegeFootball.gg's pipeline tool](https://collegefootball.gg/pipelines/) --
+a great unofficial resource if you want to look up any team's or region's
+pipelines outside of this tool.
+
 ## Changelog
+
+**v0.3.0-beta**
+- Added a "Changed only" checkbox next to the team search bar in Preview,
+  to quickly narrow the list down to just the teams whose top-10 regions
+  actually changed (the same thing the &bull; dot next to a team's name
+  flags) -- handy after tweaking a setting when you just want to see
+  what actually moved.
+- Added adjustable weights for each coaching position (Head Coach vs.
+  Offensive/Defensive Coordinator) under Advanced settings -- these are
+  proportions, not required to sum to 1, so making Head Coach matter 3x
+  more than the coordinators is as simple as setting its number higher.
+- Every weight slider (the main 4, decay, geo radius, and the new coach
+  position weights) now has a paired number box -- drag the slider or
+  type an exact value, both stay in sync.
+- Added a "Game style" map color option, alongside the existing
+  team-colored map -- a fixed 5-color palette matching the pipeline
+  tiers you'd see in-game, for anyone who prefers that over each team's
+  own colors. Toggle it from either map view; the choice is remembered.
+- Fortified every save-file table lookup to use each table's unique ID
+  instead of its numeric table ID or name, on the advice of a community
+  member experienced with this file format. Numeric table IDs can shift
+  on a game update, which would previously risk silently reading the
+  wrong table after a patch -- unique ID is stable across that kind of
+  change, and independently verified against a real save file table by
+  table before shipping.
 
 **v0.2.0-beta**
 - Added a **History** tab: pick any team and scrub through every season

@@ -12,6 +12,28 @@
 const TIER_NAMES = ["Unrecognized", "NicheInterest", "Respected", "Popular", "HouseholdName", "CulturalPillar"];
 const SPLIT_STATE_FIPS = new Set(["48", "12", "13", "06"]); // TX, FL, GA, CA
 
+// The game's own pin colors for pipeline strength 1-5 (NicheInterest through
+// CulturalPillar) -- exact values pulled from the game's own "PIPELINE
+// TIERS" legend, not an approximation.
+const GAME_TIER_COLORS = {
+  Unrecognized: "transparent",
+  NicheInterest: "#8e5435",
+  Respected: "#9c9c9c",
+  Popular: "#cba14b",
+  HouseholdName: "#62aec5",
+  CulturalPillar: "#bd5fbb",
+};
+
+function computeTierColor(baseColor, colorScheme) {
+  if (colorScheme === 'game') {
+    return { ...GAME_TIER_COLORS };
+  }
+  const ramp = sharpenedRamp(baseColor);
+  const tierColor = {};
+  TIER_NAMES.forEach((t, i) => { tierColor[t] = ramp[i - 1] || 'transparent'; });
+  return tierColor;
+}
+
 let stateToPipelineCache = null;
 let countyTopologyCache = null;
 
@@ -164,7 +186,7 @@ async function getCountyTopology() {
  * @param {string} baseColor - team's primary hex color
  * @param {Array} afterEntries - [[tierName, regionName, value], ...] (the engine's "after" output)
  */
-async function renderTeamMap(container, teamName, baseColor, afterEntries, previousEntries) {
+async function renderTeamMap(container, teamName, baseColor, afterEntries, previousEntries, colorScheme) {
   container.innerHTML = '<div class="map-loading">Loading map data\u2026</div>';
 
   const stateToPipeline = await getStateToPipeline();
@@ -174,9 +196,7 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries, previ
   for (const [tier, region] of afterEntries) tiers[region] = tier;
   const changeDirections = computeRegionChangeDirections(afterEntries, previousEntries);
 
-  const ramp = sharpenedRamp(baseColor);
-  const tierColor = {};
-  TIER_NAMES.forEach((t, i) => { tierColor[t] = ramp[i - 1] || 'transparent'; });
+  const tierColor = computeTierColor(baseColor, colorScheme);
   // index 0 (Unrecognized) intentionally has no color -- shouldn't appear in real "after" data
 
   const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -292,14 +312,12 @@ function buildTierListHTML(afterEntries, tierColor, changeDirections) {
  * Assumes renderTeamMap was already called once for this container/team
  * (so the paths, their data-region tags, and the header/disclaimer exist).
  */
-function updateTeamMapColors(container, baseColor, afterEntries, previousEntries) {
+function updateTeamMapColors(container, baseColor, afterEntries, previousEntries, colorScheme) {
   const tiers = {};
   for (const [tier, region] of afterEntries) tiers[region] = tier;
   const changeDirections = computeRegionChangeDirections(afterEntries, previousEntries);
 
-  const ramp = sharpenedRamp(baseColor);
-  const tierColor = {};
-  TIER_NAMES.forEach((t, i) => { tierColor[t] = ramp[i - 1] || 'transparent'; });
+  const tierColor = computeTierColor(baseColor, colorScheme);
 
   const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
   const noneColor = isDark ? '#383835' : '#e1e0d9';
