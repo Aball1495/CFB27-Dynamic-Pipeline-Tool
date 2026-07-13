@@ -4,8 +4,6 @@ let teamColors = {};
 let engineResults = {};
 let selectedTeams = new Set();
 
-const TIER_ORDER = ["Unrecognized", "NicheInterest", "Respected", "Popular", "HouseholdName", "CulturalPillar"];
-
 async function init() {
   settings = await window.api.getSettings();
   presets = await window.api.getPresets();
@@ -55,6 +53,7 @@ function syncSlidersFromSettings() {
   const scheme = settings.mapColorScheme || 'team';
   document.getElementById('map-color-scheme-toggle').value = scheme;
   document.getElementById('history-color-scheme-toggle').value = scheme;
+  document.getElementById('preview-color-scheme-toggle').value = scheme;
 
   checkWeightSum();
 }
@@ -62,9 +61,9 @@ function syncSlidersFromSettings() {
 function checkWeightSum() {
   const sum = sliderIds.reduce((s, id) => s + settings[id], 0);
   const warning = document.getElementById('weight-sum-warning');
-  if (Math.abs(sum - 1.0) > 0.02) {
+  if (Math.abs(sum - 1.0) > 0.0001) {
     warning.classList.remove('hidden');
-    document.getElementById('weight-sum-value').textContent = sum.toFixed(2);
+    document.getElementById('weight-sum-value').textContent = sum.toFixed(4);
   } else {
     warning.classList.add('hidden');
   }
@@ -174,19 +173,23 @@ function applyMapColorScheme(scheme) {
   settings.mapColorScheme = scheme;
   document.getElementById('map-color-scheme-toggle').value = scheme;
   document.getElementById('history-color-scheme-toggle').value = scheme;
+  document.getElementById('preview-color-scheme-toggle').value = scheme;
   window.api.saveSettings(settings);
   // Re-render whichever map is currently visible so the change shows immediately.
   if (!document.getElementById('map-modal').classList.contains('hidden') && lastOpenedMapTeam) {
-    openMapModal(lastOpenedMapTeam, engineResults[lastOpenedMapTeam].after);
+    switchMapView(currentMapView);
   }
   if (!document.getElementById('history-modal').classList.contains('hidden')) {
     currentHistoryTeam = null; // force a full rebuild with the new color scheme
     lastRenderedSeason = null;
     renderHistoryMapForSelection();
   }
+  // Also refresh the Preview list's tier swatches, which use the same scheme.
+  if (Object.keys(engineResults).length > 0) renderPreview();
 }
 document.getElementById('map-color-scheme-toggle').addEventListener('change', (e) => applyMapColorScheme(e.target.value));
 document.getElementById('history-color-scheme-toggle').addEventListener('change', (e) => applyMapColorScheme(e.target.value));
+document.getElementById('preview-color-scheme-toggle').addEventListener('change', (e) => applyMapColorScheme(e.target.value));
 
 // ---- Run engine ----
 
@@ -213,50 +216,8 @@ document.getElementById('btn-run').addEventListener('click', async () => {
 function tierColorFor(teamName, tierName) {
   const colors = teamColors[teamName];
   const base = colors ? colors[0] : '#888888';
-  const tierIndex = TIER_ORDER.indexOf(tierName);
-  const lightnessSteps = [0.92, 0.86, 0.68, 0.50, 0.34, 0.20];
-  return shadeHex(base, lightnessSteps[tierIndex] ?? 0.5);
-}
-
-function shadeHex(hex, targetLightness) {
-  const [h, , s] = hexToHsl(hex);
-  return hslToHex(h, targetLightness, Math.max(s, 0.5));
-}
-
-function hexToHsl(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h, s, l = (max + min) / 2;
-  if (max === min) { h = 0; s = 0; }
-  else {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-    else if (max === g) h = ((b - r) / d + 2) / 6;
-    else h = ((r - g) / d + 4) / 6;
-  }
-  return [h, l, s];
-}
-
-function hslToHex(h, l, s) {
-  const hue2rgb = (p, q, t) => {
-    if (t < 0) t += 1; if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
-  let r, g, b;
-  if (s === 0) { r = g = b = l; }
-  else {
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1 / 3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1 / 3);
-  }
-  const toHex = (v) => Math.round(v * 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  const tierColor = window.PipelineMap.computeTierColor(base, settings.mapColorScheme);
+  return tierColor[tierName] || '#888888';
 }
 
 function isTeamChanged(teamName) {
@@ -305,7 +266,7 @@ function renderPreview() {
     const mapBtn = document.createElement('button');
     mapBtn.className = 'btn btn-map';
     mapBtn.textContent = 'View map';
-    mapBtn.addEventListener('click', () => openMapModal(teamName, after));
+    mapBtn.addEventListener('click', () => openMapModal(teamName, prior, after));
     nameCell.appendChild(mapBtn);
 
     const coachPositions = [
@@ -326,15 +287,28 @@ function renderPreview() {
     coachesBlock.innerHTML = coachRows;
     nameCell.appendChild(coachesBlock);
 
+    const sortedPrior = [...prior].sort((a, b) => b[2] - a[2]);
     const beforeCell = document.createElement('div');
-    beforeCell.innerHTML = '<div class="team-col-label">Before</div>' + prior.map(([tier, region, val]) =>
+    beforeCell.innerHTML = '<div class="team-col-label">Before</div>' + sortedPrior.map(([tier, region, val]) =>
       `<div class="region-line"><span><span class="tier-swatch" style="background:${tierColorFor(teamName, tier)}"></span>${region}</span><span>${val}</span></div>`
     ).join('');
+
+    const priorValueByRegion = {};
+    for (const [, region, val] of prior) priorValueByRegion[region] = val;
 
     const afterCell = document.createElement('div');
     afterCell.innerHTML = '<div class="team-col-label">After</div>' + after.map(([tier, region, val]) => {
       const isNew = !priorRegions.has(region);
-      return `<div class="region-line ${isNew ? 'changed' : ''}"><span><span class="tier-swatch" style="background:${tierColorFor(teamName, tier)}"></span>${region}</span><span>${val}</span></div>`;
+      const deltaLabel = isNew
+        ? '<span class="region-delta new">new</span>'
+        : (() => {
+            const delta = val - priorValueByRegion[region];
+            if (delta === 0) return '';
+            const sign = delta > 0 ? '+' : '';
+            const cls = delta > 0 ? 'up' : 'down';
+            return `<span class="region-delta ${cls}">${sign}${delta}</span>`;
+          })();
+      return `<div class="region-line ${isNew ? 'changed' : ''}"><span><span class="tier-swatch" style="background:${tierColorFor(teamName, tier)}"></span>${region}</span><span>${val} ${deltaLabel}</span></div>`;
     }).join('');
 
     row.append(checkboxCell, nameCell, beforeCell, afterCell);
@@ -349,16 +323,52 @@ document.getElementById('chk-changed-only').addEventListener('change', renderPre
 // ---- Map modal ----
 
 let lastOpenedMapTeam = null;
+let lastOpenedMapPrior = null;
+let lastOpenedMapAfter = null;
+let currentMapView = 'after'; // 'before' | 'after'
 
-function openMapModal(teamName, afterEntries) {
+function entriesToTierMap(entries) {
+  const map = {};
+  for (const [tier, region] of entries) map[region] = tier;
+  return map;
+}
+
+function openMapModal(teamName, priorEntries, afterEntries) {
   const modal = document.getElementById('map-modal');
   const body = document.getElementById('map-modal-body');
   modal.classList.remove('hidden');
   lastOpenedMapTeam = teamName;
+  lastOpenedMapPrior = priorEntries;
+  lastOpenedMapAfter = afterEntries;
+  currentMapView = 'after';
+  document.getElementById('map-before-after-toggle').value = 'after';
   const colors = teamColors[teamName];
   const baseColor = colors ? colors[0] : '#888888';
-  window.PipelineMap.renderTeamMap(body, teamName, baseColor, afterEntries, null, settings.mapColorScheme);
+  // Comparing against "before" gives the up/down arrows -- showing what
+  // changed to get to this point. No comparison baseline when viewing
+  // "before" itself (nothing came before the before).
+  window.PipelineMap.renderTeamMap(body, teamName, baseColor, afterEntries, priorEntries, settings.mapColorScheme);
+  renderSeasonChangesSummary(entriesToTierMap(afterEntries), entriesToTierMap(priorEntries), 'map-season-changes',
+    "Nothing to compare -- this team's before/after regions are identical.");
 }
+
+function switchMapView(view) {
+  currentMapView = view;
+  const body = document.getElementById('map-modal-body');
+  const colors = teamColors[lastOpenedMapTeam];
+  const baseColor = colors ? colors[0] : '#888888';
+  if (view === 'after') {
+    window.PipelineMap.updateTeamMapColors(body, baseColor, lastOpenedMapAfter, lastOpenedMapPrior, settings.mapColorScheme);
+    renderSeasonChangesSummary(entriesToTierMap(lastOpenedMapAfter), entriesToTierMap(lastOpenedMapPrior), 'map-season-changes',
+      "Nothing to compare -- this team's before/after regions are identical.");
+  } else {
+    window.PipelineMap.updateTeamMapColors(body, baseColor, lastOpenedMapPrior, null, settings.mapColorScheme);
+    // Viewing "before" itself has nothing earlier to compare against.
+    document.getElementById('map-season-changes').innerHTML =
+      '<p class="hint">Viewing the before state -- switch to "After" to see what changed.</p>';
+  }
+}
+document.getElementById('map-before-after-toggle').addEventListener('change', (e) => switchMapView(e.target.value));
 
 document.getElementById('btn-close-map').addEventListener('click', () => {
   document.getElementById('map-modal').classList.add('hidden');
@@ -422,11 +432,33 @@ function refreshHistorySeasonRange() {
  * {...} }. This normalizes either shape so the rest of the code never
  * needs to care which one it's looking at.
  */
+/**
+ * Older seasons store each region as a plain tier string (no score
+ * tracked). Newer seasons store { tier, value } per region. Detects
+ * which shape a given season is in (by checking one region's entry) and
+ * normalizes either way -- also transparently unwraps the now-unused
+ * { tiers, coaches } shape from an earlier, scrapped experiment, in case
+ * any entries got written in that shape.
+ */
 function extractSeasonData(seasonEntry) {
-  if (seasonEntry && typeof seasonEntry === 'object' && 'tiers' in seasonEntry) {
-    return { tiers: seasonEntry.tiers || {}, coaches: seasonEntry.coaches || null };
+  const flat = (seasonEntry && typeof seasonEntry === 'object' && 'tiers' in seasonEntry)
+    ? (seasonEntry.tiers || {})
+    : (seasonEntry || {});
+
+  const regions = Object.keys(flat);
+  const hasScores = regions.length > 0 && typeof flat[regions[0]] === 'object' && flat[regions[0]] !== null;
+
+  const tiers = {};
+  const values = {};
+  for (const region of regions) {
+    if (hasScores) {
+      tiers[region] = flat[region].tier;
+      values[region] = flat[region].value;
+    } else {
+      tiers[region] = flat[region];
+    }
   }
-  return { tiers: seasonEntry || {}, coaches: null };
+  return { tiers, values, hasScores };
 }
 
 function renderHistoryMapForSelection() {
@@ -446,33 +478,39 @@ function renderHistoryMapForSelection() {
 
   document.getElementById('history-season-out').textContent = season;
 
-  const { tiers: tiersByRegion } = extractSeasonData(currentDynastyHistory[teamName][String(season)]);
-  const fakeAfterEntries = Object.entries(tiersByRegion).map(([region, tier]) => [tier, region, 0]);
+  const { tiers: tiersByRegion, values: valuesByRegion, hasScores } =
+    extractSeasonData(currentDynastyHistory[teamName][String(season)]);
+  const fakeAfterEntries = Object.entries(tiersByRegion).map(([region, tier]) =>
+    [tier, region, hasScores ? valuesByRegion[region] : 0]
+  );
 
   const seasonIndex = Number(slider.value);
   const prevSeason = seasonIndex > 0 ? seasons[seasonIndex - 1] : null;
-  const { tiers: prevTiersByRegionRaw } = prevSeason !== null
+  const prevData = prevSeason !== null
     ? extractSeasonData(currentDynastyHistory[teamName][String(prevSeason)])
-    : { tiers: null };
-  const prevTiersByRegion = prevSeason !== null ? prevTiersByRegionRaw : null;
-  const fakePreviousEntries = prevTiersByRegion
-    ? Object.entries(prevTiersByRegion).map(([region, tier]) => [tier, region, 0])
+    : null;
+  const prevTiersByRegion = prevData ? prevData.tiers : null;
+  const fakePreviousEntries = prevData
+    ? Object.entries(prevData.tiers).map(([region, tier]) =>
+        [tier, region, prevData.hasScores ? prevData.values[region] : 0]
+      )
     : null;
 
   const colors = teamColors[teamName];
   const baseColor = colors ? colors[0] : '#888888';
   const body = document.getElementById('history-modal-body');
 
-  renderSeasonChangesSummary(tiersByRegion, prevTiersByRegion);
+  renderSeasonChangesSummary(tiersByRegion, prevTiersByRegion, 'history-season-changes',
+    'This is the first tracked season for this team -- nothing to compare yet.');
 
   if (currentHistoryTeam === teamName) {
     // Same team, just a different season -- recolor in place so the CSS
     // transition on path fill/stroke actually has something to animate.
-    window.PipelineMap.updateTeamMapColors(body, baseColor, fakeAfterEntries, fakePreviousEntries, settings.mapColorScheme);
+    window.PipelineMap.updateTeamMapColors(body, baseColor, fakeAfterEntries, fakePreviousEntries, settings.mapColorScheme, hasScores);
   } else {
     // New team (or first open) -- full rebuild, including the header/logo.
     currentHistoryTeam = teamName;
-    window.PipelineMap.renderTeamMap(body, teamName, baseColor, fakeAfterEntries, fakePreviousEntries, settings.mapColorScheme);
+    window.PipelineMap.renderTeamMap(body, teamName, baseColor, fakeAfterEntries, fakePreviousEntries, settings.mapColorScheme, hasScores);
   }
 }
 
@@ -484,10 +522,10 @@ function renderHistoryMapForSelection() {
  * out of the top 10 completely has nowhere to show an arrow, so this is
  * the only place that gap gets surfaced.
  */
-function renderSeasonChangesSummary(currentTiersByRegion, prevTiersByRegion) {
-  const el = document.getElementById('history-season-changes');
+function renderSeasonChangesSummary(currentTiersByRegion, prevTiersByRegion, elementId, noComparisonMessage) {
+  const el = document.getElementById(elementId);
   if (!prevTiersByRegion) {
-    el.innerHTML = '<p class="hint">This is the first tracked season for this team -- nothing to compare yet.</p>';
+    el.innerHTML = `<p class="hint">${noComparisonMessage}</p>`;
     return;
   }
   const currentRegions = new Set(Object.keys(currentTiersByRegion));
@@ -496,7 +534,7 @@ function renderSeasonChangesSummary(currentTiersByRegion, prevTiersByRegion) {
   const droppedRegions = [...prevRegions].filter((r) => !currentRegions.has(r)).sort();
 
   if (newRegions.length === 0 && droppedRegions.length === 0) {
-    el.innerHTML = '<p class="hint">No pipelines gained or lost this season.</p>';
+    el.innerHTML = '<p class="hint">No pipelines gained or lost.</p>';
     return;
   }
 

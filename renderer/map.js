@@ -186,7 +186,7 @@ async function getCountyTopology() {
  * @param {string} baseColor - team's primary hex color
  * @param {Array} afterEntries - [[tierName, regionName, value], ...] (the engine's "after" output)
  */
-async function renderTeamMap(container, teamName, baseColor, afterEntries, previousEntries, colorScheme) {
+async function renderTeamMap(container, teamName, baseColor, afterEntries, previousEntries, colorScheme, showScores = true) {
   container.innerHTML = '<div class="map-loading">Loading map data\u2026</div>';
 
   const stateToPipeline = await getStateToPipeline();
@@ -275,19 +275,20 @@ async function renderTeamMap(container, teamName, baseColor, afterEntries, previ
   // about the map showing more/fewer shapes than real regions (multi-state
   // pipelines like Tidewater or Pacific Northwest span several states).
   const tierListEl = container.querySelector('.map-tier-list');
-  tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections);
+  tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections, showScores);
 }
 
-function buildTierListHTML(afterEntries, tierColor, changeDirections) {
+function buildTierListHTML(afterEntries, tierColor, changeDirections, showScores = true) {
   const directions = changeDirections || new Map();
   const byTier = {};
-  for (const [tier, region] of afterEntries) {
+  for (const [tier, region, value] of afterEntries) {
     if (!byTier[tier]) byTier[tier] = [];
     const dir = directions.get(region);
     const marker = dir === 'up' ? '<span class="region-up">\u25B2</span>'
       : dir === 'down' ? '<span class="region-down">\u25BC</span>'
       : '';
-    byTier[tier].push(`${region}${marker}`);
+    const scoreLabel = showScores ? ` <span class="region-score">(${value})</span>` : '';
+    byTier[tier].push(`${region}${scoreLabel}${marker}`);
   }
   const orderedTiers = [...TIER_NAMES].reverse().filter((t) => byTier[t]);
   return orderedTiers.map((tier) => `
@@ -312,7 +313,7 @@ function buildTierListHTML(afterEntries, tierColor, changeDirections) {
  * Assumes renderTeamMap was already called once for this container/team
  * (so the paths, their data-region tags, and the header/disclaimer exist).
  */
-function updateTeamMapColors(container, baseColor, afterEntries, previousEntries, colorScheme) {
+function updateTeamMapColors(container, baseColor, afterEntries, previousEntries, colorScheme, showScores = true) {
   const tiers = {};
   for (const [tier, region] of afterEntries) tiers[region] = tier;
   const changeDirections = computeRegionChangeDirections(afterEntries, previousEntries);
@@ -333,7 +334,7 @@ function updateTeamMapColors(container, baseColor, afterEntries, previousEntries
   });
 
   const tierListEl = container.querySelector('.map-tier-list');
-  if (tierListEl) tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections);
+  if (tierListEl) tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections, showScores);
 }
 
-window.PipelineMap = { renderTeamMap, updateTeamMapColors, sharpenedRamp };
+window.PipelineMap = { renderTeamMap, updateTeamMapColors, sharpenedRamp, computeTierColor };

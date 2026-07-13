@@ -76,7 +76,8 @@ body {
 .slider-row input[type="range"] { width: 100%; }
 .slider-row output { text-align: right; color: var(--text-secondary); font-size: 0.8rem; }
 .weight-num { width: 56px; text-align: right; font-size: 0.8rem; padding: 0.2rem 0.35rem; border-radius: 4px; }
-.color-scheme-toggle { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; font-size: 0.78rem; color: var(--text-secondary); margin: 0 6rem 0.6rem 0; }
+.map-modal-toggles { display: flex; gap: 1.2rem; justify-content: flex-end; margin: 0 6rem 0.6rem 0; }
+.color-scheme-toggle { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; font-size: 0.78rem; color: var(--text-secondary); }
 .color-scheme-toggle select { padding: 0.25rem 0.4rem; border-radius: 5px; font-size: 0.78rem; }
 
 .warning { margin-top: 0.5rem; color: #e6a23c; font-size: 0.8rem; }
@@ -116,6 +117,11 @@ body {
 .team-col-label { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem; }
 .region-line { display: flex; justify-content: space-between; padding: 0.1rem 0; color: var(--text-secondary); }
 .region-line.changed { color: var(--text-primary); font-weight: 500; }
+.region-delta { font-size: 0.72rem; margin-left: 0.2rem; }
+.region-delta.up { color: #3fb950; }
+.region-delta.down { color: #e5534b; }
+.region-delta.new { color: #3fb950; font-style: italic; }
+.region-score { color: var(--text-secondary); font-size: 0.82rem; }
 .tier-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 0.4rem; }
 
 .apply-result { margin-top: 0.75rem; font-size: 0.82rem; color: var(--text-secondary); }

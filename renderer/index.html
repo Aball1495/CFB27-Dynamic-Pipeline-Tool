@@ -22,6 +22,7 @@
     <!-- STEP 2: Settings -->
     <section class="panel" id="panel-settings">
       <h2>2. Settings</h2>
+      <p class="hint">Every slider, number box, and checkbox here saves automatically -- reopening the tool later picks up right where you left off, no need to redo a custom setup each time.</p>
 
       <div class="preset-row">
         <button class="btn preset-btn" data-preset="rosterDriven">Roster-driven</button>
@@ -111,6 +112,13 @@
         <input type="text" id="team-search" placeholder="Search teams&hellip;" />
         <label class="checkbox-row"><input type="checkbox" id="chk-changed-only" /> Changed only</label>
         <label class="checkbox-row"><input type="checkbox" id="chk-select-all" /> Select all</label>
+        <label class="color-scheme-toggle">
+          Colors
+          <select id="preview-color-scheme-toggle">
+            <option value="team">Team colors</option>
+            <option value="game">Game style (1-5)</option>
+          </select>
+        </label>
         <span id="selected-count" class="hint"></span>
       </div>
       <div id="preview-list" class="preview-list"></div>
@@ -136,13 +144,23 @@
   <div id="map-modal" class="map-modal hidden">
     <div class="map-modal-content">
       <button id="btn-close-map" class="btn map-modal-close">&times; Close</button>
-      <label class="color-scheme-toggle">
-        Map colors
-        <select id="map-color-scheme-toggle">
-          <option value="team">Team colors</option>
-          <option value="game">Game style (1-5)</option>
-        </select>
-      </label>
+      <div class="map-modal-toggles">
+        <label class="color-scheme-toggle">
+          View
+          <select id="map-before-after-toggle">
+            <option value="before">Before</option>
+            <option value="after" selected>After</option>
+          </select>
+        </label>
+        <label class="color-scheme-toggle">
+          Map colors
+          <select id="map-color-scheme-toggle">
+            <option value="team">Team colors</option>
+            <option value="game">Game style (1-5)</option>
+          </select>
+        </label>
+      </div>
+      <div id="map-season-changes" class="history-season-changes"></div>
       <div id="map-modal-body"></div>
     </div>
   </div>
@@ -151,13 +169,15 @@
   <div id="history-modal" class="map-modal hidden">
     <div class="map-modal-content">
       <button id="btn-close-history" class="btn map-modal-close">&times; Close</button>
-      <label class="color-scheme-toggle">
-        Map colors
-        <select id="history-color-scheme-toggle">
-          <option value="team">Team colors</option>
-          <option value="game">Game style (1-5)</option>
-        </select>
-      </label>
+      <div class="map-modal-toggles">
+        <label class="color-scheme-toggle">
+          Map colors
+          <select id="history-color-scheme-toggle">
+            <option value="team">Team colors</option>
+            <option value="game">Game style (1-5)</option>
+          </select>
+        </label>
+      </div>
       <div class="history-controls">
         <select id="history-team-select"></select>
         <div class="history-season-row">

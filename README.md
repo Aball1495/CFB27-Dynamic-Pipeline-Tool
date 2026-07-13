@@ -72,6 +72,16 @@ footprint shifted year to year. Regions that climbed a tier show a green
 up arrow, regions that dropped show a red down arrow, and a separate box
 calls out any region that entered or fell out of the top 10 entirely.
 
+**Seasons applied before this version of the tool show tier only, with no
+score in the map legend.** Score tracking in History was added back after
+initially being left out, so any season you'd already applied before that
+point simply doesn't have a number to show -- there's no way to
+retroactively recover it, since it was never recorded. Every season you
+apply going forward has the real score, right alongside the tier, exactly
+like the regular map view already shows. You'll see both styles side by
+side in the same team's history for a while, which is expected -- older
+seasons look a little plainer, newer ones show the number too.
+
 History only starts accumulating from whenever you begin using the tool
 -- there's no way to retroactively reconstruct seasons from before you
 started applying changes.
@@ -197,6 +207,41 @@ a great unofficial resource if you want to look up any team's or region's
 pipelines outside of this tool.
 
 ## Changelog
+
+**v0.4.0-beta**
+- Added a Before/After toggle to the regular map view, alongside the
+  existing "Map colors" toggle -- see a team's pipeline footprint as it
+  was before this run, or after, without leaving the map.
+- The regular map now also shows a "New Pipelines" / "Dropped Out
+  Pipelines" box, the same one History already had -- catches a region
+  entering or leaving the top 10 entirely, which the up/down arrows
+  can't show since there's no tier to point an arrow at anymore.
+- The "Map colors" toggle (team colors vs. the game's own style) is now
+  available in three places instead of one -- the regular map, History,
+  and now Preview's team list too, all three staying in sync with each
+  other since it's really just one shared setting.
+- The map's tier legend now shows each region's actual score in
+  parentheses, e.g. "Alabama (363)" -- explains cases where two regions
+  in the same tier swap listing order season to season (the map color
+  doesn't change since the tier didn't change, but the underlying score
+  did, and now you can see it).
+- History's map legend shows real scores too, for any season applied
+  with this version or later -- see the History section above for how
+  older, already-applied seasons differ.
+- Fixed the Preview list's "Before" column not being sorted the same way
+  as "After" -- After was always sorted by score, Before was showing
+  whatever raw order the save file happened to store those rows in.
+- Added a point-change indicator next to each region's score in the
+  "After" column of Preview -- green for gains, red for drops, "new" for
+  a region that wasn't tracked at all before this run.
+- The weight-sum warning under Settings is now far more sensitive --
+  previously it only flagged sums more than 0.02 away from 1.0, so small
+  intentional deviations near the edge of that range could look like the
+  warning "stopped working." Now anything more than 0.0001 away from 1.0
+  triggers it, which only tolerates genuine floating-point rounding, not
+  real deviations.
+- Added a note at the top of Settings confirming every slider, number
+  box, and checkbox saves automatically.
 
 **v0.3.0-beta**
 - Added a "Changed only" checkbox next to the team search bar in Preview,

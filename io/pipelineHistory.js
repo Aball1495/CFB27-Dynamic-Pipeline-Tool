@@ -5,11 +5,11 @@
  * and NOT next to the app -- so it survives app updates/reinstalls and
  * isn't tied to any one save file's folder location.
  *
- * Structure:
+ * Structure (current):
  * {
  *   "<dynastyCode>": {
  *     "Bowling Green": {
- *       "2026": { "Ohio": "HouseholdName", "Michigan": "Popular" },
+ *       "2026": { "Ohio": { "tier": "HouseholdName", "value": 220 }, ... },
  *       "2027": { ... }
  *     },
  *     "Toledo": { ... }
@@ -17,12 +17,14 @@
  *   "<other-dynasty-code>": { ... }
  * }
  *
- * A brief experiment wrapped season entries as { tiers, coaches } to also
- * track coaching staff per season -- that idea got scrapped (too much
- * clutter in the History view for too little value), so this reverted
- * back to the plain flat format. Any entries that got written in the
- * wrapped format during that window are harmless leftovers; nothing
- * reads or writes that shape anymore.
+ * Older entries (recorded before value tracking was added back) are a
+ * flat { region: tierString } object instead -- readers need to check
+ * whether a region's entry is a string or an object to tell the two
+ * formats apart. Those older seasons simply have no score to show;
+ * nothing needs to be migrated. (A separate, now-scrapped experiment
+ * also tried tracking coaching staff per season under a {tiers, coaches}
+ * wrapper -- if any entries got written in that shape, they're harmless
+ * leftovers; nothing reads or writes that shape anymore.)
  *
  * Re-applying the same team in the same season overwrites that season's
  * entry rather than duplicating it -- history is always "the last Apply
@@ -53,9 +55,9 @@ function saveHistory(app, history) {
 }
 
 /**
- * Records one team's post-Apply tier assignments for a given dynasty and
- * season. Call this once per applied team, right after a successful
- * commit-changes write.
+ * Records one team's post-Apply tier assignments AND scores for a given
+ * dynasty and season. Call this once per applied team, right after a
+ * successful commit-changes write.
  *
  * @param {Electron.App} app
  * @param {string} dynastyCode
@@ -69,10 +71,10 @@ function recordSnapshot(app, dynastyCode, season, teamName, afterEntries) {
   if (!history[dynastyCode]) history[dynastyCode] = {};
   if (!history[dynastyCode][teamName]) history[dynastyCode][teamName] = {};
 
-  const tiersByRegion = {};
-  for (const [tier, region] of afterEntries) tiersByRegion[region] = tier;
+  const byRegion = {};
+  for (const [tier, region, value] of afterEntries) byRegion[region] = { tier, value };
 
-  history[dynastyCode][teamName][String(season)] = tiersByRegion;
+  history[dynastyCode][teamName][String(season)] = byRegion;
   saveHistory(app, history);
 }
 
