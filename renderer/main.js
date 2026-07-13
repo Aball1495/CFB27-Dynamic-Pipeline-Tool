@@ -12,7 +12,6 @@ const {
   writeUpdatedSave,
   readDynastyCode,
   readCurrentSeason,
-  readUserTeam,
 } = require('./io/saveFile');
 const { recordSnapshot } = require('./io/pipelineHistory');
 
@@ -106,13 +105,6 @@ ipcMain.handle('get-dynasty-code-for-save', async (event, { savePath }) => {
   const franchise = await openSave(savePath);
   return readDynastyCode(franchise);
 });
-ipcMain.handle('get-save-info', async (event, { savePath }) => {
-  const franchise = await openSave(savePath);
-  const dynastyCode = await readDynastyCode(franchise);
-  const season = await readCurrentSeason(franchise);
-  const userTeam = await readUserTeam(franchise);
-  return { dynastyCode, season, userTeam };
-});
 
 /**
  * Opens the save directly, reads every team's roster/coaches/prior
@@ -172,14 +164,12 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
   // season's history snapshot. Never touches write mode on the original.
   let dynastyCode = null;
   let season = null;
-  let historyWarning = null;
   try {
     const readFranchise = await openSave(savePath);
     dynastyCode = await readDynastyCode(readFranchise);
     season = await readCurrentSeason(readFranchise);
   } catch (err) {
     console.error('Could not read dynasty code/season for history tracking:', err);
-    historyWarning = 'This season was NOT recorded to History -- could not read the dynasty/season info from this save. The save file itself was written successfully; only History tracking failed.';
   }
 
   let dynastyHistorySeasonWarning = null;
@@ -199,17 +189,12 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
         `Heads up: this save reports season ${season}, but this dynasty's History already has entries through ${maxKnownSeason} -- likely from a different copy of this save (a test file, a backup, etc). Applying just now updated the ${season} entry; it did not add a newer season, since this save genuinely isn't there yet.`;
     }
 
-    try {
-      for (const teamName of teamNamesToApply) {
-        const result = engineResults[teamName];
-        if (!result) continue;
-        recordSnapshot(app, dynastyCode, season, teamName, result.after);
-      }
-    } catch (err) {
-      console.error('Failed to record history snapshot:', err);
-      historyWarning = 'This season was NOT recorded to History -- writing to the local history file failed. The save file itself was written successfully; only History tracking failed.';
+    for (const teamName of teamNamesToApply) {
+      const result = engineResults[teamName];
+      if (!result) continue;
+      recordSnapshot(app, dynastyCode, season, teamName, result.after);
     }
   }
 
-  return { ...writeResult, dynastyHistorySeasonWarning, historyWarning };
+  return { ...writeResult, dynastyHistorySeasonWarning };
 });

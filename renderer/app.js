@@ -21,7 +21,41 @@ document.getElementById('btn-select-save').addEventListener('click', async () =>
   if (!picked) return;
   savePath = picked;
   document.getElementById('save-path-display').textContent = `Selected: ${savePath}`;
+  await refreshSaveInfoBar();
 });
+
+async function refreshSaveInfoBar() {
+  const bar = document.getElementById('save-info-bar');
+  const logoImg = document.getElementById('save-info-logo');
+  const swatchEl = document.getElementById('save-info-swatch');
+  const textEl = document.getElementById('save-info-text');
+
+  bar.classList.remove('hidden');
+  textEl.textContent = 'Loading dynasty info\u2026';
+  logoImg.style.display = 'none';
+  swatchEl.style.display = 'none';
+
+  try {
+    const info = await window.api.getSaveInfo(savePath);
+    const teamName = info.userTeam ? info.userTeam.displayName : null;
+    textEl.textContent = teamName
+      ? `Season ${info.season} \u2014 Playing as ${teamName} \u2014 Dynasty ${info.dynastyCode}`
+      : `Season ${info.season} \u2014 Dynasty ${info.dynastyCode}`;
+
+    if (teamName) {
+      const colors = teamColors[teamName];
+      swatchEl.style.background = colors ? colors[0] : '#888888';
+      swatchEl.style.display = 'inline-block';
+      const logosDirUrl = await window.PipelineMap.getLogosDirUrl();
+      logoImg.onload = () => { logoImg.style.display = 'inline-block'; swatchEl.style.display = 'none'; };
+      logoImg.onerror = () => { logoImg.style.display = 'none'; swatchEl.style.display = 'inline-block'; };
+      logoImg.src = `${logosDirUrl}/${encodeURIComponent(teamName)}.png`;
+    }
+  } catch (err) {
+    console.error('Could not load save info:', err);
+    textEl.textContent = 'Could not read dynasty info from this save.';
+  }
+}
 
 // ---- Settings sliders/presets ----
 
@@ -584,6 +618,10 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
   resultDiv.innerHTML = `
     <div>New save file created: <strong>${result.outputPath}</strong></div>
     <div class="hint">Load this save in-game to use the recomputed pipelines. Your original save was never touched.</div>
+    ${result.verified === true ? '<div class="verified-ok">\u2713 Write verified -- re-read the new file and confirmed every change landed correctly.</div>' : ''}
+    ${result.verified === false ? `<div class="warning-severe">This save may not have written correctly -- ${result.verificationError || 'a post-write check failed.'} Don't load this save yet; re-run Apply, and if this keeps happening, something's genuinely wrong and worth reporting.</div>` : ''}
+    ${result.dynastyHistorySeasonWarning ? `<div class="warning">${result.dynastyHistorySeasonWarning}</div>` : ''}
+    ${result.historyWarning ? `<div class="warning">${result.historyWarning}</div>` : ''}
   `;
 });
 

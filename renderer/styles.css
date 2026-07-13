@@ -81,6 +81,8 @@ body {
 .color-scheme-toggle select { padding: 0.25rem 0.4rem; border-radius: 5px; font-size: 0.78rem; }
 
 .warning { margin-top: 0.5rem; color: #e6a23c; font-size: 0.8rem; }
+.warning-severe { margin-top: 0.5rem; padding: 0.5rem; background: rgba(229, 83, 75, 0.15); border-left: 3px solid #e5534b; color: #e5534b; font-size: 0.82rem; font-weight: 500; }
+.verified-ok { margin-top: 0.5rem; color: #3fb950; font-size: 0.8rem; }
 .hidden { display: none; }
 
 .advanced { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
@@ -156,6 +158,9 @@ body {
 .map-swatch { width: 32px; height: 32px; border-radius: 6px; display: inline-block; }
 .map-logo { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; }
 .map-team-name { font-size: 1.4rem; font-weight: 600; }
+.save-info-bar { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: var(--surface-1); border-radius: 8px; font-size: 0.85rem; }
+.save-info-logo { width: 28px; height: 28px; object-fit: contain; border-radius: 5px; }
+.save-info-swatch { width: 22px; height: 22px; border-radius: 5px; }
 .map-loading { color: var(--text-muted); font-size: 0.85rem; padding: 2rem 0; text-align: center; }
 .map-svg-container { width: 100%; }
 .map-disclaimer { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; }

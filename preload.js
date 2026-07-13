@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   getLogosDir: () => ipcRenderer.invoke('get-logos-dir'),
   getHistory: () => ipcRenderer.invoke('get-history'),
   getDynastyCodeForSave: (savePath) => ipcRenderer.invoke('get-dynasty-code-for-save', { savePath }),
+  getSaveInfo: (savePath) => ipcRenderer.invoke('get-save-info', { savePath }),
   runEngine: (savePath, settings) => ipcRenderer.invoke('run-engine', { savePath, settings }),
   commitChanges: (savePath, engineResults, teamNamesToApply, outputDir) =>
     ipcRenderer.invoke('commit-changes', { savePath, engineResults, teamNamesToApply, outputDir }),

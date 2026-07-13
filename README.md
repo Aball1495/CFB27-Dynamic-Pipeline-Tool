@@ -208,7 +208,25 @@ pipelines outside of this tool.
 
 ## Changelog
 
-**v0.4.0-beta**
+**v0.5.0**
+- After selecting a save, a small info bar now shows the current season,
+  which team you're actually playing as (with its logo), and the
+  dynasty's code -- confirmed against a real save (the same
+  Coach.IsUserControlled field the game itself uses to know who you are).
+- If you Apply against a save that's behind other seasons already in that
+  dynasty's History (usually from testing against an older copy of the
+  same save), you'll now get a clear heads-up explaining what happened,
+  instead of just wondering why the newest season didn't show up.
+- If History fails to record a season for any reason, that's no longer a
+  silent failure -- you'll see a warning that the save itself wrote fine,
+  but that specific season's tracking didn't.
+- Every Apply now re-opens the freshly-written save as a completely
+  separate read and confirms every intended change actually landed
+  correctly, showing a green confirmation on success or a clear red
+  warning if anything doesn't match -- cheap insurance for the one
+  operation in this whole app that touches a copy of your save.
+
+**v0.4.0**
 - Added a Before/After toggle to the regular map view, alongside the
   existing "Map colors" toggle -- see a team's pipeline footprint as it
   was before this run, or after, without leaving the map.

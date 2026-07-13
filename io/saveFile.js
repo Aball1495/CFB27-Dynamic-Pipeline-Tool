@@ -74,6 +74,27 @@ async function readCurrentSeason(franchise) {
 }
 
 /**
+ * Which team the actual person is playing as, confirmed against a real
+ * save: the Coach table's HeadCoach record with IsUserControlled === true,
+ * cross-referenced against the Team table for the display name.
+ * Returns null if nothing matches (e.g. a spectator-only save, if that's
+ * even possible in this game).
+ */
+async function readUserTeam(franchise) {
+  const coachTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.coach);
+  await coachTable.readRecords();
+  const userCoach = coachTable.records.find((r) => r.Position === 'HeadCoach' && r.IsUserControlled === true);
+  if (!userCoach) return null;
+
+  const teamTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+  await teamTable.readRecords();
+  const teamRecord = teamTable.records.find((r) => r.TeamIndex === userCoach.TeamIndex);
+  if (!teamRecord) return null;
+
+  return { teamIndex: userCoach.TeamIndex, displayName: teamRecord.DisplayName };
+}
+
+/**
  * Reads the Team table (filtering out the handful of non-real placeholder
  * rows -- blank DisplayName or TeamIndex 255, the same sentinel pattern
  * we've seen elsewhere in this schema), then for each real team follows
@@ -218,7 +239,35 @@ async function writeUpdatedSave(savePath, updatesByRow4306, outputDir) {
 
   await franchise.save();
 
-  return { outputPath };
+  // Post-write verification: re-open the fresh copy (a completely separate
+  // read from what was just written, not trusting in-memory state) and
+  // confirm every intended change actually landed. Cheap insurance for the
+  // one operation in this whole app that touches a copy of someone's save.
+  let verified = true;
+  let verificationError = null;
+  try {
+    const verifyFranchise = await Franchise.create(outputPath);
+    const verifyTable = verifyFranchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluence);
+    await verifyTable.readRecords();
+    for (const [rowStr, update] of Object.entries(updatesByRow4306)) {
+      const row = Number(rowStr);
+      const record = verifyTable.records[row];
+      const matches = record
+        && record.InfluenceLevel === update.InfluenceLevel
+        && record.Pipeline === update.Pipeline
+        && record.InfluenceValue === update.InfluenceValue;
+      if (!matches) {
+        verified = false;
+        verificationError = `Row ${row} didn't match after writing (expected ${JSON.stringify(update)}, found ${record ? JSON.stringify({ InfluenceLevel: record.InfluenceLevel, Pipeline: record.Pipeline, InfluenceValue: record.InfluenceValue }) : 'no record at all'}).`;
+        break;
+      }
+    }
+  } catch (err) {
+    verified = false;
+    verificationError = `Could not verify the write: ${err.message}`;
+  }
+
+  return { outputPath, verified, verificationError };
 }
 
 module.exports = {
@@ -231,4 +280,5 @@ module.exports = {
   writeUpdatedSave,
   readDynastyCode,
   readCurrentSeason,
+  readUserTeam,
 };

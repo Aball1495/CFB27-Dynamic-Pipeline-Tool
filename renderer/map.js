@@ -337,4 +337,4 @@ function updateTeamMapColors(container, baseColor, afterEntries, previousEntries
   if (tierListEl) tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections, showScores);
 }
 
-window.PipelineMap = { renderTeamMap, updateTeamMapColors, sharpenedRamp, computeTierColor };
+window.PipelineMap = { renderTeamMap, updateTeamMapColors, sharpenedRamp, computeTierColor, getLogosDirUrl };
