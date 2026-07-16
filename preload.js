@@ -11,9 +11,11 @@ contextBridge.exposeInMainWorld('api', {
   getStateToPipeline: () => ipcRenderer.invoke('get-state-to-pipeline'),
   getLogosDir: () => ipcRenderer.invoke('get-logos-dir'),
   getHistory: () => ipcRenderer.invoke('get-history'),
+  deleteHistorySeason: (dynastyCode, season) => ipcRenderer.invoke('delete-history-season', { dynastyCode, season }),
+  deleteHistoryDynasty: (dynastyCode) => ipcRenderer.invoke('delete-history-dynasty', { dynastyCode }),
   getDynastyCodeForSave: (savePath) => ipcRenderer.invoke('get-dynasty-code-for-save', { savePath }),
   getSaveInfo: (savePath) => ipcRenderer.invoke('get-save-info', { savePath }),
   runEngine: (savePath, settings) => ipcRenderer.invoke('run-engine', { savePath, settings }),
-  commitChanges: (savePath, engineResults, teamNamesToApply, outputDir) =>
-    ipcRenderer.invoke('commit-changes', { savePath, engineResults, teamNamesToApply, outputDir }),
+  commitChanges: (savePath, engineResults, teamNamesToApply, outputDir, settings) =>
+    ipcRenderer.invoke('commit-changes', { savePath, engineResults, teamNamesToApply, outputDir, settings }),
 });

@@ -186,6 +186,18 @@ picker.
 
 ## Known limitations / next steps
 
+- **The base game appears to run its own preseason pipeline logic,
+  independent of anything this tool writes** -- confirmed across multiple
+  real season advances on a real save. Teams below some internal baseline
+  count (looks like 10) can gain brand-new pipelines the game generates
+  itself, not a restoration of whatever was removed. Even teams already
+  well above that baseline (Academy Mode's 42) aren't fully immune --
+  occasionally a single slot's tier/value gets silently overwritten by
+  the game, though this didn't compound uncontrollably every season in
+  testing (several academy teams went a full season completely
+  untouched). **Recommended usage: re-run this tool every preseason**,
+  the same way you'd already do for roster or coaching changes, rather
+  than treating a single Apply as permanent.
 - Geography uses real haversine distance from empirically-derived region
   centroids (`data/regionCentroids.json`), built from real player hometown
   data gathered earlier in this project.
@@ -211,6 +223,55 @@ a great unofficial resource if you want to look up any team's or region's
 pipelines outside of this tool.
 
 ## Changelog
+
+**v0.7.0**
+- Investigated a community report that removed/shrunk pipelines can
+  reappear (or have their tier/value silently overwritten) after an
+  in-game season advance, independent of anything this tool writes.
+  Confirmed across multiple real season advances on a real save -- see
+  the new note under **Known limitations** above, along with the
+  recommended workaround (re-run this tool every preseason).
+- Fixed a real bug where Apply could silently fail to write anything at
+  all for a large combined run (e.g. Academy Mode plus a big
+  regular-team shrink across many teams). The write step processed
+  shrinking and expanding in a single mixed pass, in an order based
+  purely on internal team-index numbers rather than which teams actually
+  needed to free rows first -- a team needing to expand could get
+  processed before enough other teams had freed up rows for it, even
+  when there was plenty of supply in total once everyone was done,
+  causing the whole Apply to fail partway through before anything was
+  actually saved.
+- Added an upfront capacity check before any writing starts: totals up
+  exactly how many new pipeline slots a run needs versus how many will
+  actually be available (existing unused rows, plus everything about to
+  be freed by shrinking), and fails cleanly with a clear explanation if
+  it's genuinely not enough, instead of a confusing mid-write crash.
+- Fixed the confusing case where a failed Apply could still show
+  "✓ Write verified" -- that check only ever verified the teams it
+  actually got to process, so if the write failed before really doing
+  anything, there was nothing to find wrong with, and it defaulted to
+  looking fine. It now correctly reflects an actual failure.
+- Fixed a related bug in History tracking: a failed Apply could still
+  get recorded into History as if it had succeeded, due to a leftover
+  check for a field that was never actually being set.
+- Apply's result panel now always shows something meaningful if
+  something goes wrong, even in cases that aren't cleanly handled
+  elsewhere -- previously, an unexpected failure could leave whatever
+  result panel was already on screen from an earlier, successful Apply,
+  with no indication anything had actually gone wrong except the
+  developer console.
+- History now shows what settings were actually in effect for a given
+  team's season, right under the season slider -- the max-pipelines
+  ceiling that was active at the time, and Academy Mode status if that
+  team was covered by it that season. Seasons applied before this was
+  added simply don't show anything here, same as the existing pattern
+  for older tier-only seasons that predate score tracking.
+- Added the ability to clear History from inside the app, instead of
+  hunting down and hand-editing `pipeline-history.json` yourself:
+  **Clear this season** removes just the currently-viewed season across
+  every team in the dynasty, leaving every other season untouched;
+  **Clear ALL history for this dynasty** wipes the whole thing. Both ask
+  for confirmation first, since neither can be undone.
 
 **v0.6.0**
 - Fixed a real bug where any team with more than 30 real pipeline slots

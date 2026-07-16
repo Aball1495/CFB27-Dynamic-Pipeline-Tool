@@ -15,7 +15,6 @@ const {
   readUserTeam,
 } = require('./io/saveFile');
 const { recordSnapshot } = require('./io/pipelineHistory');
-
 const regionCentroids = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/regionCentroids.json'), 'utf8'));
 const teamColors = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/teamColors.json'), 'utf8'));
 const stateToPipeline = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/stateToPipeline.json'), 'utf8'));
@@ -100,8 +99,10 @@ ipcMain.handle('get-team-colors', () => teamColors);
 ipcMain.handle('get-state-to-pipeline', () => stateToPipeline);
 ipcMain.handle('get-logos-dir', () => LOGOS_DIR);
 
-const { loadHistory } = require('./io/pipelineHistory');
+const { loadHistory, deleteSeason, deleteDynastyHistory } = require('./io/pipelineHistory');
 ipcMain.handle('get-history', () => loadHistory(app));
+ipcMain.handle('delete-history-season', (event, { dynastyCode, season }) => deleteSeason(app, dynastyCode, season));
+ipcMain.handle('delete-history-dynasty', (event, { dynastyCode }) => deleteDynastyHistory(app, dynastyCode));
 ipcMain.handle('get-dynasty-code-for-save', async (event, { savePath }) => {
   const franchise = await openSave(savePath);
   return readDynastyCode(franchise);
@@ -212,7 +213,7 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
  * file copy -- see writeUpdatedSave(). Your original save is never opened
  * in write mode at any point in this flow.
  */
-ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNamesToApply, outputDir }) => {
+ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNamesToApply, outputDir, settings }) => {
   // writeUpdatedSave expects { [teamIndex]: { after: [[tier,region,value],...] } }
   // -- NOT a flat row-indexed map. It needs the full `after` array per team
   // (not pre-flattened to specific row numbers) because expansion/shrinking
@@ -241,7 +242,7 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
   }
 
   let dynastyHistorySeasonWarning = null;
-  if (dynastyCode && season && writeResult && writeResult.success !== false) {
+  if (dynastyCode && season && writeResult && writeResult.outputPath) {
     const existingHistory = loadHistory(app);
     let maxKnownSeason = null;
     if (existingHistory[dynastyCode]) {
@@ -261,7 +262,18 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
       for (const teamName of teamNamesToApply) {
         const result = engineResults[teamName];
         if (!result) continue;
-        recordSnapshot(app, dynastyCode, season, teamName, result.after);
+        // Settings context for this season, kept separate from the
+        // region data itself (see the JSDoc on recordSnapshot for why).
+        // Falls back gracefully if `settings` wasn't passed for some
+        // reason -- history recording for the actual pipeline data
+        // shouldn't fail just because this optional context is missing.
+        const meta = settings
+          ? {
+              targetCount: result.academyStatus ? settings.academyTargetCount : settings.maxPipelines,
+              academyStatus: result.academyStatus || null,
+            }
+          : null;
+        recordSnapshot(app, dynastyCode, season, teamName, result.after, meta);
       }
     } catch (err) {
       console.error('Failed to record history snapshot:', err);

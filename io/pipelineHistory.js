@@ -65,8 +65,18 @@ function saveHistory(app, history) {
  * @param {string} teamName
  * @param {Array<[tier, region, value]>} afterEntries - same shape as
  *   engineResults[teamName].after
+ * @param {{targetCount: number, academyStatus: string|null}|null} meta -
+ *   OPTIONAL settings context for this season (the max-pipelines target
+ *   that was in effect, and this team's Academy Mode status, if any).
+ *   Deliberately NOT stored inside history[dynastyCode][teamName][season]
+ *   itself -- extractSeasonData() in app.js treats every key in that
+ *   object as a region name, and openHistoryModal() treats every key
+ *   under history[dynastyCode] as a team name. Adding a sibling key
+ *   anywhere in that tree would get misread as a bogus region or team.
+ *   Instead this lives in a fully separate top-level tree
+ *   (history.__settingsMeta) that neither of those ever looks at.
  */
-function recordSnapshot(app, dynastyCode, season, teamName, afterEntries) {
+function recordSnapshot(app, dynastyCode, season, teamName, afterEntries, meta = null) {
   const history = loadHistory(app);
   if (!history[dynastyCode]) history[dynastyCode] = {};
   if (!history[dynastyCode][teamName]) history[dynastyCode][teamName] = {};
@@ -75,7 +85,67 @@ function recordSnapshot(app, dynastyCode, season, teamName, afterEntries) {
   for (const [tier, region, value] of afterEntries) byRegion[region] = { tier, value };
 
   history[dynastyCode][teamName][String(season)] = byRegion;
+
+  if (meta) {
+    if (!history.__settingsMeta) history.__settingsMeta = {};
+    if (!history.__settingsMeta[dynastyCode]) history.__settingsMeta[dynastyCode] = {};
+    if (!history.__settingsMeta[dynastyCode][teamName]) history.__settingsMeta[dynastyCode][teamName] = {};
+    history.__settingsMeta[dynastyCode][teamName][String(season)] = meta;
+  }
+
   saveHistory(app, history);
 }
 
-module.exports = { loadHistory, saveHistory, recordSnapshot };
+/**
+ * Removes ONE season's entry for EVERY team under a given dynasty --
+ * "clear 2027" removes 2027 from every team that has it, leaving every
+ * other season for every team untouched. A team that only had that one
+ * season recorded ends up with an empty {} for itself (not removed
+ * entirely) -- harmless, and keeps this function simple/predictable
+ * rather than also having to decide whether to prune now-empty teams.
+ *
+ * No-op (returns false) if the dynasty isn't found, or if no team under
+ * it actually had that season -- lets the caller distinguish "nothing to
+ * do" from "something was actually removed."
+ *
+ * @param {Electron.App} app
+ * @param {string} dynastyCode
+ * @param {string|number} season
+ * @returns {boolean} true if at least one team's entry for this season was removed
+ */
+function deleteSeason(app, dynastyCode, season) {
+  const history = loadHistory(app);
+  const dynasty = history[dynastyCode];
+  if (!dynasty) return false;
+
+  const seasonKey = String(season);
+  let removedAny = false;
+  for (const teamName of Object.keys(dynasty)) {
+    if (seasonKey in dynasty[teamName]) {
+      delete dynasty[teamName][seasonKey];
+      removedAny = true;
+    }
+  }
+
+  if (removedAny) saveHistory(app, history);
+  return removedAny;
+}
+
+/**
+ * Removes an ENTIRE dynasty's history -- every team, every season. This
+ * is the "all or nothing" option; use deleteSeason above for anything
+ * more targeted.
+ *
+ * @param {Electron.App} app
+ * @param {string} dynastyCode
+ * @returns {boolean} true if this dynasty existed and was removed
+ */
+function deleteDynastyHistory(app, dynastyCode) {
+  const history = loadHistory(app);
+  if (!(dynastyCode in history)) return false;
+  delete history[dynastyCode];
+  saveHistory(app, history);
+  return true;
+}
+
+module.exports = { loadHistory, saveHistory, recordSnapshot, deleteSeason, deleteDynastyHistory };

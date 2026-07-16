@@ -450,45 +450,118 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
   const franchise = await Franchise.create(outputPath);
   const { teamsByIndex, pipelineInfluenceTable } = await readTeamPipelineMapping(franchise);
 
-  // Tracks, per team, exactly which rows ended up holding this team's
-  // data after any expansion -- needed for verification below, since
-  // expansion can add rows that weren't known before this function ran.
-  const finalRowsByTeam = {};
-
+  // ---- Upfront feasibility check ----
+  // Compute total demand (every expansion's need) against total supply
+  // (rows about to be freed by every shrink, plus rows already sitting
+  // orphaned) BEFORE writing anything. Catches a genuinely-insufficient
+  // combination cleanly, with a real message, instead of throwing
+  // partway through a mixed write -- which previously could leave a
+  // fully untouched file with no user-facing explanation (the exception
+  // happened before franchise.save() was ever reached, and the promise
+  // rejection wasn't being handled on the renderer side either).
+  let totalDemand = 0;
+  let totalFreedByShrinking = 0;
   for (const [teamIndexStr, update] of Object.entries(teamUpdates)) {
-    const teamIndex = Number(teamIndexStr);
-    const teamInfo = teamsByIndex[teamIndex];
+    const teamInfo = teamsByIndex[Number(teamIndexStr)];
     if (!teamInfo) continue;
-
-    let rows4306 = teamInfo.rows4306;
-    if (update.after.length > rows4306.length) {
-      rows4306 = await expandTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, update.after.length);
-      teamsByIndex[teamIndex].rows4306 = rows4306; // keep in sync so a later team in this same loop can't be handed the same orphaned row twice
-    } else if (update.after.length < rows4306.length) {
-      // Symmetric case: the engine legitimately returned fewer entries
-      // than this team currently has real slots for (see the
-      // "Engine implication" filter in computeTeamPipelines) -- shrink
-      // down to match, freeing the excess rows back to the shared pool.
-      // Same in-place sync as the expand branch above, for the same
-      // reason: a later academy team in this same commit needs to see
-      // these freed rows as available.
-      rows4306 = await shrinkTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, update.after.length);
-      teamsByIndex[teamIndex].rows4306 = rows4306;
-    }
-    finalRowsByTeam[teamIndex] = rows4306;
-
-    rows4306.forEach((rowIndex, i) => {
-      const [tier, pipeline, value] = update.after[i] || [];
-      if (tier === undefined) return;
-      const record = pipelineInfluenceTable.records[rowIndex];
-      if (!record) return;
-      record.InfluenceLevel = tier;
-      record.Pipeline = pipeline;
-      record.InfluenceValue = value;
-    });
+    const diff = update.after.length - teamInfo.rows4306.length;
+    if (diff > 0) totalDemand += diff;
+    else if (diff < 0) totalFreedByShrinking += -diff;
+  }
+  const referencedRows = new Set();
+  for (const info of Object.values(teamsByIndex)) {
+    for (const row of info.rows4306) referencedRows.add(row);
+  }
+  let existingOrphans = 0;
+  for (let i = 0; i < pipelineInfluenceTable.records.length; i++) {
+    if (!referencedRows.has(i)) existingOrphans++;
+  }
+  const totalSupply = totalFreedByShrinking + existingOrphans;
+  if (totalDemand > totalSupply) {
+    return {
+      outputPath: null,
+      verified: false,
+      verificationError:
+        `Not enough unused pipeline rows to make this Apply work: need ${totalDemand} new slots total, ` +
+        `only ${totalSupply} would be available (${totalFreedByShrinking} freed by shrinking + ${existingOrphans} already unused). ` +
+        `Nothing was written -- try a smaller Academy Mode target count, or apply fewer teams at once.`,
+    };
   }
 
-  await franchise.save();
+  // Passes 1-3 and the save itself are wrapped together -- if ANYTHING
+  // unexpected goes wrong here (a per-team structural cap the aggregate
+  // feasibility check above doesn't account for, or anything else), this
+  // returns a clean failure result instead of throwing uncaught. An
+  // uncaught throw here previously propagated all the way to the
+  // renderer as a rejected promise with no user-facing handling on
+  // either end -- silently leaving whatever result panel was already on
+  // screen, with no indication anything failed except the DevTools
+  // console.
+  let finalRowsByTeam;
+  try {
+    // ---- Pass 1: shrink everyone that needs it, FIRST ----
+    // Frees rows back to the shared pool before anyone tries to draw from
+    // it. Doing shrink and expand in one mixed pass previously relied on
+    // Object.entries()'s iteration order for numeric-looking keys (always
+    // ascending team-index order, regardless of insertion order) -- which
+    // has nothing to do with which teams need to free rows vs. claim them,
+    // so an expansion could fail even when total supply was fine, just
+    // because it happened to be processed before enough shrinks had run.
+    for (const [teamIndexStr, update] of Object.entries(teamUpdates)) {
+      const teamIndex = Number(teamIndexStr);
+      const teamInfo = teamsByIndex[teamIndex];
+      if (!teamInfo) continue;
+      if (update.after.length < teamInfo.rows4306.length) {
+        const rows4306 = await shrinkTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, update.after.length);
+        teamsByIndex[teamIndex].rows4306 = rows4306;
+      }
+    }
+
+    // ---- Pass 2: now handle every expansion ----
+    // Every shrink above has already run, so the shared pool reflects the
+    // true, final supply before any expansion draws from it.
+    for (const [teamIndexStr, update] of Object.entries(teamUpdates)) {
+      const teamIndex = Number(teamIndexStr);
+      const teamInfo = teamsByIndex[teamIndex];
+      if (!teamInfo) continue;
+      if (update.after.length > teamInfo.rows4306.length) {
+        const rows4306 = await expandTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, update.after.length);
+        teamsByIndex[teamIndex].rows4306 = rows4306;
+      }
+    }
+
+    // ---- Pass 3: write actual content into every team's final row set ----
+    // Tracks, per team, exactly which rows ended up holding this team's
+    // data -- needed for verification below, since passes 1/2 can change
+    // which rows a team owns.
+    finalRowsByTeam = {};
+    for (const [teamIndexStr, update] of Object.entries(teamUpdates)) {
+      const teamIndex = Number(teamIndexStr);
+      const teamInfo = teamsByIndex[teamIndex];
+      if (!teamInfo) continue;
+
+      const rows4306 = teamInfo.rows4306;
+      finalRowsByTeam[teamIndex] = rows4306;
+
+      rows4306.forEach((rowIndex, i) => {
+        const [tier, pipeline, value] = update.after[i] || [];
+        if (tier === undefined) return;
+        const record = pipelineInfluenceTable.records[rowIndex];
+        if (!record) return;
+        record.InfluenceLevel = tier;
+        record.Pipeline = pipeline;
+        record.InfluenceValue = value;
+      });
+    }
+
+    await franchise.save();
+  } catch (err) {
+    return {
+      outputPath: null,
+      verified: false,
+      verificationError: `Apply failed before finishing: ${err.message}. Nothing in this output file should be trusted -- please report this.`,
+    };
+  }
 
   // Post-write verification: re-open the fresh copy (a completely separate
   // read from what was just written, not trusting in-memory state) and

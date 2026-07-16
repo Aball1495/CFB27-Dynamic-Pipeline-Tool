@@ -488,6 +488,7 @@ document.getElementById('map-modal').addEventListener('click', (e) => {
 // ---- History modal ----
 
 let currentDynastyHistory = {}; // { [teamName]: { [season]: { [region]: tier } } }
+let currentSettingsMeta = {}; // { [teamName]: { [season]: { targetCount, academyStatus } } } -- see recordSnapshot's JSDoc for why this is tracked separately from currentDynastyHistory rather than nested inside it
 
 async function openHistoryModal() {
   if (!savePath) {
@@ -501,6 +502,7 @@ async function openHistoryModal() {
   const dynastyCode = await window.api.getDynastyCodeForSave(savePath);
   const fullHistory = await window.api.getHistory();
   currentDynastyHistory = fullHistory[dynastyCode] || {};
+  currentSettingsMeta = (fullHistory.__settingsMeta && fullHistory.__settingsMeta[dynastyCode]) || {};
 
   const teamNames = Object.keys(currentDynastyHistory).sort();
   if (teamNames.length === 0) {
@@ -586,6 +588,18 @@ function renderHistoryMapForSelection() {
 
   document.getElementById('history-season-out').textContent = season;
 
+  const meta = (currentSettingsMeta[teamName] && currentSettingsMeta[teamName][String(season)]) || null;
+  const metaEl = document.getElementById('history-season-meta');
+  if (meta) {
+    const academyLabel = meta.academyStatus ? ` \u2014 Academy Mode (${meta.academyStatus})` : '';
+    metaEl.textContent = `Settings this season: max ${meta.targetCount} pipelines${academyLabel}`;
+  } else {
+    // Seasons applied before this metadata was added simply don't have
+    // it -- there's nothing to retroactively recover, same situation as
+    // the older tier-only (no score) seasons already handled elsewhere.
+    metaEl.textContent = '';
+  }
+
   const { tiers: tiersByRegion, values: valuesByRegion, hasScores } =
     extractSeasonData(currentDynastyHistory[teamName][String(season)]);
   const fakeAfterEntries = Object.entries(tiersByRegion).map(([region, tier]) =>
@@ -662,6 +676,33 @@ document.getElementById('history-modal').addEventListener('click', (e) => {
   if (e.target.id === 'history-modal') e.target.classList.add('hidden');
 });
 
+document.getElementById('btn-clear-history-season').addEventListener('click', async () => {
+  const slider = document.getElementById('history-season-slider');
+  const seasons = JSON.parse(slider.dataset.seasons || '[]');
+  const season = seasons[Number(slider.value)];
+  if (season === undefined) return;
+
+  const confirmed = confirm(
+    `Clear season ${season} from History for EVERY team in this dynasty? This can't be undone.`
+  );
+  if (!confirmed) return;
+
+  const dynastyCode = await window.api.getDynastyCodeForSave(savePath);
+  await window.api.deleteHistorySeason(dynastyCode, season);
+  await openHistoryModal(); // full refresh -- team list, season range, and the currently-viewed season may all need to change
+});
+
+document.getElementById('btn-clear-history-dynasty').addEventListener('click', async () => {
+  const confirmed = confirm(
+    `Clear ALL History for this entire dynasty -- every team, every season? This can't be undone.`
+  );
+  if (!confirmed) return;
+
+  const dynastyCode = await window.api.getDynastyCodeForSave(savePath);
+  await window.api.deleteHistoryDynasty(dynastyCode);
+  await openHistoryModal(); // will now show the "no history yet" empty state
+});
+
 document.getElementById('chk-select-all').addEventListener('change', (e) => {
   // Exempt academy teams have nothing to apply (after mirrors prior) --
   // selecting them is a harmless but pointless write. Select All skips
@@ -689,9 +730,33 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
   const outputDir = await window.api.selectOutputDir();
   if (!outputDir) return;
 
-  const result = await window.api.commitChanges(savePath, engineResults, [...selectedTeams], outputDir);
   const resultDiv = document.getElementById('apply-result');
   resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div class="hint">Applying\u2026</div>';
+
+  let result;
+  try {
+    result = await window.api.commitChanges(savePath, engineResults, [...selectedTeams], outputDir, settings);
+  } catch (err) {
+    // Something threw that even writeUpdatedSave's own try/catch didn't
+    // catch cleanly (an IPC-layer issue, or an error in the history-
+    // tracking pass after a successful write). Previously this left
+    // whatever result panel was already on screen from an earlier Apply
+    // completely untouched, with no indication anything failed except
+    // the DevTools console -- silently misleading, since it looked like
+    // nothing had happened rather than like something had gone wrong.
+    resultDiv.innerHTML = `<div class="warning-severe">Apply failed unexpectedly: ${err.message || err}. Nothing should have been written to a new file, but don't assume that -- check for a new file in your chosen output folder before trusting anything from this attempt.</div>`;
+    return;
+  }
+
+  if (!result.outputPath) {
+    // Clean, expected failure (e.g. the upfront capacity check in
+    // writeUpdatedSave) -- nothing was written at all, so there's no
+    // "New save file created" line to show, just the explanation.
+    resultDiv.innerHTML = `<div class="warning-severe">${result.verificationError || 'Apply could not proceed.'}</div>`;
+    return;
+  }
+
   resultDiv.innerHTML = `
     <div>New save file created: <strong>${result.outputPath}</strong></div>
     <div class="hint">Load this save in-game to use the recomputed pipelines. Your original save was never touched.</div>
