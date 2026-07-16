@@ -83,6 +83,8 @@ body {
 .warning { margin-top: 0.5rem; color: #e6a23c; font-size: 0.8rem; }
 .warning-severe { margin-top: 0.5rem; padding: 0.5rem; background: rgba(229, 83, 75, 0.15); border-left: 3px solid #e5534b; color: #e5534b; font-size: 0.82rem; font-weight: 500; }
 .verified-ok { margin-top: 0.5rem; color: #3fb950; font-size: 0.8rem; }
+.experimental-row { color: #e6a23c; font-weight: 500; }
+.experimental-hint { border-left: 3px solid #e6a23c; padding-left: 0.6rem; margin-top: 0.3rem; }
 .hidden { display: none; }
 
 .advanced { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }

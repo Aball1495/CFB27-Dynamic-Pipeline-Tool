@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-const { defaultSettings, applyPreset, computeTeamPipelines, PRESETS } = require('./engine/pipelineEngine');
+const { defaultSettings, applyPreset, computeTeamPipelines, buildAcademyAssignment, PRESETS } = require('./engine/pipelineEngine');
 const {
   openSave,
   readTeamPipelineMapping,
@@ -126,6 +126,11 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
   const playersByTeamIndex = await readPlayers(franchise);
   const coachesByTeamIndex = await readCoaches(franchise);
 
+  // Academy Mode -- see academy_mode_spec.md. Only active when the
+  // setting is on; an empty Set means the per-team check below is always
+  // false, so this costs nothing when the feature is off.
+  const academyTeamSet = new Set(settings.academyMode ? (settings.academyTeams || []) : []);
+
   const results = {};
   for (const [teamIndexStr, teamInfo] of Object.entries(teamsByIndex)) {
     const teamIndex = Number(teamIndexStr);
@@ -136,9 +141,61 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
       .filter(Boolean)
       .filter((entry) => !(entry[0] === 'Unrecognized' && entry[2] === 0)); // strip known placeholder-slot noise
 
+    // ---- Academy Mode ----
+    // Checked BEFORE the `!prior.length` bail-out below, on purpose -- a
+    // team newly entering Academy Mode with very few (or, in principle,
+    // zero) real slots should still get set up, not silently skipped.
+    if (academyTeamSet.has(teamInfo.displayName)) {
+      const alreadySetUp = teamInfo.rows4306.length >= settings.academyTargetCount;
+
+      if (settings.academyExempt && alreadySetUp) {
+        // The whole point of "exempt": once set up, this team is
+        // completely excluded from every future run -- not recalculated,
+        // not rewritten. `after` mirrors `prior` so the preview correctly
+        // shows "no changes" instead of inventing a diff for a team
+        // we're deliberately not touching.
+        results[teamInfo.displayName] = {
+          teamIndex,
+          rows4306: teamInfo.rows4306,
+          prior,
+          after: prior,
+          coaches,
+          academyStatus: 'exempt',
+        };
+        continue;
+      }
+
+      // Needs (re)setup: either academyExempt is false (runs the real
+      // engine every season, just at the bigger target -- academyUniform
+      // is ignored in that case, per the spec), or it's true but this
+      // team hasn't reached academyTargetCount real slots yet (the
+      // one-time setup pass -- uniform tier, or a single varied
+      // real-engine snapshot).
+      const after = (settings.academyExempt && settings.academyUniform)
+        ? buildAcademyAssignment(settings.academyUniformTier, settings.academyTargetCount)
+        : computeTeamPipelines(teamInfo.displayName, players, coaches, prior, regionCentroids, settings, settings.academyTargetCount);
+
+      results[teamInfo.displayName] = {
+        teamIndex,
+        rows4306: teamInfo.rows4306,
+        prior,
+        after,
+        coaches,
+        academyStatus: settings.academyExempt ? 'setup' : 'active',
+      };
+      continue;
+    }
+
     if (!prior.length) continue;
 
-    const after = computeTeamPipelines(teamInfo.displayName, players, coaches, prior, regionCentroids, settings);
+    // Ceiling for regular (non-academy) teams: never more than
+    // settings.maxPipelines, but can legitimately come back with fewer
+    // (computeTeamPipelines' zero-score filter). Whether Applying this
+    // means expanding (real signal supports more real slots than the
+    // team currently has) or shrinking (team currently has more real
+    // slots than the ceiling allows) happens automatically in
+    // writeUpdatedSave -- this call doesn't need to know or care which.
+    const after = computeTeamPipelines(teamInfo.displayName, players, coaches, prior, regionCentroids, settings, settings.maxPipelines);
     results[teamInfo.displayName] = {
       teamIndex,
       rows4306: teamInfo.rows4306,
@@ -156,17 +213,18 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
  * in write mode at any point in this flow.
  */
 ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNamesToApply, outputDir }) => {
-  const updatesByRow4306 = {};
+  // writeUpdatedSave expects { [teamIndex]: { after: [[tier,region,value],...] } }
+  // -- NOT a flat row-indexed map. It needs the full `after` array per team
+  // (not pre-flattened to specific row numbers) because expansion/shrinking
+  // determines the actual row numbers to write to, and that can only happen
+  // once it's already open on its own working copy of the file.
+  const teamUpdates = {};
   for (const teamName of teamNamesToApply) {
     const result = engineResults[teamName];
     if (!result) continue;
-    result.rows4306.forEach((rowIndex, i) => {
-      const [tier, pipeline, value] = result.after[i] || [];
-      if (tier === undefined) return;
-      updatesByRow4306[rowIndex] = { InfluenceLevel: tier, Pipeline: pipeline, InfluenceValue: value };
-    });
+    teamUpdates[result.teamIndex] = { after: result.after };
   }
-  const writeResult = await writeUpdatedSave(savePath, updatesByRow4306, outputDir);
+  const writeResult = await writeUpdatedSave(savePath, teamUpdates, outputDir);
 
   // Read-only pass, separate from the write above, just to key this
   // season's history snapshot. Never touches write mode on the original.

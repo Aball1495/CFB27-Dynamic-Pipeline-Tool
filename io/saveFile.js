@@ -98,9 +98,16 @@ async function readUserTeam(franchise) {
  * Reads the Team table (filtering out the handful of non-real placeholder
  * rows -- blank DisplayName or TeamIndex 255, the same sentinel pattern
  * we've seen elsewhere in this schema), then for each real team follows
- * SchoolPipelineInfluenceList -> the list table -> the actual 10 rows in
- * SchoolPipelineInfluence, using the field's built-in .referenceData
- * (confirmed reliable -- no manual bit-math needed for this part).
+ * SchoolPipelineInfluenceList -> the list table -> that team's actual
+ * pipeline rows in SchoolPipelineInfluence, using the field's built-in
+ * .referenceData (confirmed reliable -- no manual bit-math needed for
+ * this part).
+ *
+ * IMPORTANT: not every team has exactly 10 real pipeline slots. Confirmed
+ * by auditing every team in a real save -- 17 teams have fewer (down to
+ * just 1, for Sac State), 53 have more (11, or 12 for Arkansas State).
+ * This reads however many each team actually has, rather than assuming
+ * 10 for everyone.
  *
  * Reference pointers store their OWN copy of the target table's numeric
  * tableId (that's just how this binary format encodes "this field points
@@ -113,7 +120,7 @@ async function readUserTeam(franchise) {
  *
  * Returns:
  *   {
- *     teamsByIndex: { [teamIndex]: { displayName, rows4306: [10 row numbers] } },
+ *     teamsByIndex: { [teamIndex]: { displayName, rows4306: [row numbers, one per real slot] } },
  *     pipelineInfluenceTable: <live table object, for reading/writing rows directly>,
  *   }
  */
@@ -142,14 +149,31 @@ async function readTeamPipelineMapping(franchise) {
     const listRecord = listTable.records[listRef.rowNumber];
     if (!listRecord) continue;
 
+    // Not every team actually has 10 real pipeline slots -- confirmed by
+    // auditing every team in a real save: 17 teams have fewer (as low as
+    // 1, for Sac State), 53 have more (11 or even 12, for Arkansas
+    // State). Real slots are always contiguous starting from index 0 in
+    // every team checked, so stopping at the first non-real slot
+    // correctly finds each team's true count rather than assuming 10.
+    // The upper bound here is just a generous safety cap -- no real team
+    // comes anywhere close to it.
     const rows4306 = [];
-    for (let i = 0; i < 10; i++) {
+    // Confirmed structural ceiling is 42 slots per team (verified across
+    // 5 different teams' records) -- 50 is a safe, generous bound that
+    // won't truncate a team with more real slots than the old 30-cap
+    // assumed. That old cap was chosen before this project ever
+    // discovered teams could exceed 30 real pipelines, and directly
+    // caused a confirmed real bug: any team with more than 30 real
+    // slots (which academies now genuinely can, at up to 42) would have
+    // its slots beyond 30 silently ignored on every future Apply --
+    // never read, never recalculated, never touched, just permanently
+    // frozen with stale data.
+    for (let i = 0; i < 50; i++) {
       const field = listRecord.getFieldByKey(`SchoolPipelineInfluence${i}`);
-      if (!field) continue;
+      if (!field) break; // field itself doesn't exist -- structure ends here
       const ref = field.referenceData;
-      if (ref && ref.tableId === pipelineTableId) {
-        rows4306.push(ref.rowNumber);
-      }
+      if (!ref || ref.tableId !== pipelineTableId) break; // first empty slot -- this team's true count
+      rows4306.push(ref.rowNumber);
     }
 
     teamsByIndex[teamRecord.TeamIndex] = {
@@ -159,6 +183,182 @@ async function readTeamPipelineMapping(franchise) {
   }
 
   return { teamsByIndex, pipelineInfluenceTable };
+}
+
+/**
+ * Encodes a {tableId, rowNumber} reference as the raw 32-bit binary
+ * string this schema's reference fields expect -- 15 bits for tableId,
+ * 17 bits for rowNumber. Confirmed against a real save by decoding an
+ * existing known-good reference and checking the bits matched exactly.
+ */
+function encodeReference(tableId, rowNumber) {
+  const tableIdBits = tableId.toString(2).padStart(15, '0');
+  const rowNumberBits = rowNumber.toString(2).padStart(17, '0');
+  return tableIdBits + rowNumberBits;
+}
+
+// A reference field's value when it points at nothing -- confirmed
+// against real save data. Writing this to a list slot's field is what
+// "unlinks" that slot from a team, the necessary first step before that
+// row can be handed to anyone else (see shrinkTeamPipelineSlots below).
+const NULL_REFERENCE = encodeReference(0, 0);
+
+/**
+ * EXPERIMENTAL -- writes brand-new pipeline slot references for a team
+ * that currently has fewer than `targetCount` real slots, "adopting"
+ * currently-unreferenced rows from the shared SchoolPipelineInfluence
+ * table (confirmed there are ~188 such orphaned rows in a real save,
+ * none referenced by any team). This is a fundamentally different kind
+ * of write than anything else in this file -- every other write updates
+ * a VALUE on an already-existing link; this creates the link itself for
+ * the first time.
+ *
+ * Confirmed working at the file-read/write level: written references
+ * persist correctly on a completely fresh re-open, and this project's own
+ * read code correctly recognizes the newly-added slots afterward.
+ * NOT YET confirmed against actual in-game behavior -- the game might
+ * have other bookkeeping tied to slot count that this doesn't know
+ * about. Treat as experimental until verified in-game on a disposable
+ * save copy.
+ *
+ * @param {Franchise} franchise - an already-open franchise (same one the
+ *   caller is about to write other updates through)
+ * @param {Object} teamsByIndex - from readTeamPipelineMapping, used to
+ *   find every team's currently-referenced rows so we don't hand out a
+ *   row that's secretly already in use by someone else
+ * @param {Object} pipelineInfluenceTable - from readTeamPipelineMapping
+ * @param {number} teamIndex - which team to expand
+ * @param {number} targetCount - how many real slots this team should
+ *   have after this call (does nothing if it already has this many or
+ *   more)
+ * @returns {number[]} this team's full rows4306 array after expansion
+ *   (existing real rows plus any newly-linked ones)
+ */
+async function expandTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, targetCount) {
+  const teamInfo = teamsByIndex[teamIndex];
+  const currentRows = teamInfo.rows4306;
+  const currentCount = currentRows.length;
+  if (currentCount >= targetCount) return currentRows;
+
+  const pipelineTableId = pipelineInfluenceTable.header.tableId;
+
+  // Find every row already referenced by ANY team, so we only ever hand
+  // out rows nobody else is using.
+  const referencedRows = new Set();
+  for (const info of Object.values(teamsByIndex)) {
+    for (const row of info.rows4306) referencedRows.add(row);
+  }
+  const orphanedRows = [];
+  for (let i = 0; i < pipelineInfluenceTable.records.length; i++) {
+    if (!referencedRows.has(i)) orphanedRows.push(i);
+  }
+
+  const numNeeded = targetCount - currentCount;
+  if (orphanedRows.length < numNeeded) {
+    throw new Error(`Not enough unused pipeline rows available to expand this team (need ${numNeeded}, found ${orphanedRows.length}).`);
+  }
+  const rowsToAdopt = orphanedRows.slice(0, numNeeded);
+
+  const teamTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+  await teamTable.readRecords();
+  const teamRecord = teamTable.records.find((r) => r.TeamIndex === Number(teamIndex));
+  const listTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluenceList);
+  await listTable.readRecords();
+  const listRef = teamRecord.getFieldByKey('SchoolPipelineInfluenceList').referenceData;
+  const listRecord = listTable.records[listRef.rowNumber];
+
+  const newRows = [...currentRows];
+  for (let i = 0; i < rowsToAdopt.length; i++) {
+    const slotIndex = currentCount + i;
+    const rowToAdopt = rowsToAdopt[i];
+    const field = listRecord.getFieldByKey(`SchoolPipelineInfluence${slotIndex}`);
+    field.value = encodeReference(pipelineTableId, rowToAdopt);
+    newRows.push(rowToAdopt);
+  }
+
+  return newRows;
+}
+
+/**
+ * EXPERIMENTAL, NOT YET IN-GAME VERIFIED -- the counterpart to
+ * expandTeamPipelineSlots. Shrinks a team's real slot count DOWN to
+ * targetCount by unlinking the excess slots and returning those rows to
+ * the shared orphan pool. This is the "10 is a ceiling" one-time
+ * normalization from academy_mode_spec.md -- the mechanism that actually
+ * supplies Academy Mode's expansion pool. Does nothing if the team
+ * already has targetCount or fewer real slots.
+ *
+ * IMPORTANT -- this is genuinely new, higher-risk territory compared to
+ * everything else in this file. Every other write here either updates a
+ * value on an already-existing link (safe, extensively proven) or ADDS a
+ * new link (expandTeamPipelineSlots -- proven at the file level and
+ * spot-checked in-game). This is the first function that REMOVES a real
+ * link a team already has. Confirmed correct at the file level (see
+ * hardcap_test.cjs, which used this exact unlink pattern inline before it
+ * was promoted here) -- NOT yet confirmed against actual in-game behavior.
+ * Test on a disposable save copy before trusting this with a real dynasty.
+ *
+ * Only ever called for a ONE-TIME ceiling normalization (a team currently
+ * above the target gets brought down to it, once). This is NOT the
+ * mechanism for a team's own pipeline count naturally coming back lower
+ * in some future season -- that's a different, engine-level concern (see
+ * the "Engine implication" section of academy_mode_spec.md): a slot that
+ * goes blank because its region's score dropped stays LINKED to that same
+ * team, and must never be unlinked or handed to anyone else. This
+ * function should only ever be invoked for a team whose CURRENT real
+ * slot count exceeds the ceiling, never as a per-season "trim to fit"
+ * step.
+ *
+ * @param {Franchise} franchise - an already-open franchise (same one the
+ *   caller is about to write other updates through)
+ * @param {Object} teamsByIndex - from readTeamPipelineMapping; MUTATED in
+ *   place (teamsByIndex[teamIndex].rows4306 is updated to the shrunk
+ *   list) so a caller looping over multiple teams in the same run
+ *   correctly sees these freed rows as available for expansion, and
+ *   never hands the same row to two different teams.
+ * @param {Object} pipelineInfluenceTable - from readTeamPipelineMapping
+ * @param {number} teamIndex - which team to shrink
+ * @param {number} targetCount - how many real slots this team should
+ *   have after this call (does nothing if it already has this many or
+ *   fewer)
+ * @returns {number[]} this team's remaining rows4306 after shrinking
+ */
+async function shrinkTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, targetCount) {
+  const teamInfo = teamsByIndex[teamIndex];
+  const currentRows = teamInfo.rows4306;
+  const currentCount = currentRows.length;
+  if (currentCount <= targetCount) return currentRows;
+
+  const teamTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+  await teamTable.readRecords();
+  const teamRecord = teamTable.records.find((r) => r.TeamIndex === Number(teamIndex));
+  const listTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluenceList);
+  await listTable.readRecords();
+  const listRef = teamRecord.getFieldByKey('SchoolPipelineInfluenceList').referenceData;
+  const listRecord = listTable.records[listRef.rowNumber];
+
+  // Unlink every slot from targetCount onward, and reset the freed row's
+  // tier/value so it doesn't carry stale data while it sits in the
+  // orphan pool. Pipeline (region name) is deliberately left as-is,
+  // matching the pattern already proven in hardcap_test.cjs -- an
+  // Unrecognized/0 row is already treated as placeholder noise
+  // everywhere this project reads pipeline rows, so the leftover region
+  // string is harmless.
+  for (let i = targetCount; i < currentCount; i++) {
+    const field = listRecord.getFieldByKey(`SchoolPipelineInfluence${i}`);
+    field.value = NULL_REFERENCE;
+
+    const freedRow = currentRows[i];
+    const record = pipelineInfluenceTable.records[freedRow];
+    if (record) {
+      record.InfluenceLevel = 'Unrecognized';
+      record.InfluenceValue = 0;
+    }
+  }
+
+  const newRows = currentRows.slice(0, targetCount);
+  teamInfo.rows4306 = newRows; // keep in sync so a later team in this same loop can adopt these freed rows
+  return newRows;
 }
 
 /** Player table -> { [teamIndex]: [{ pipeline, state, star }, ...] } */
@@ -211,12 +411,35 @@ function readPipelineRow(pipelineInfluenceTable, rowNumber) {
  * first, a fresh Franchise instance opens that copy, the edits happen
  * there, and that copy is what gets saved.
  *
+ * Takes per-team results directly (rather than a pre-flattened row map)
+ * because expansion (writing brand-new pipeline slots for a team with
+ * fewer than 10 real ones) and shrinking (unlinking excess slots for a
+ * team with more than the target) both have to happen on this exact same
+ * open copy -- expansion needs row numbers that don't exist until it
+ * creates them, and shrinking needs teamsByIndex kept in sync so a later
+ * team in the same call can see freed rows as available. A pre-built row
+ * map from an earlier, separate read of the file can't reflect either.
+ *
  * @param {string} savePath - original save file (never modified)
- * @param {Object} updatesByRow4306 - { [rowNumber]: { InfluenceLevel, Pipeline, InfluenceValue } }
+ * @param {Object} teamUpdates - { [teamIndex]: { after: [[tier,region,value],...] } }
+ *   `after.length` may be larger OR SMALLER than that team's current real
+ *   slot count:
+ *     - larger -> EXPANSION (expandTeamPipelineSlots) creates enough new
+ *       slots to fit everything computed.
+ *     - smaller -> SHRINKING (shrinkTeamPipelineSlots) unlinks the excess
+ *       slots, returning those rows to the shared pool. This is the "10
+ *       is a ceiling, not a floor" mechanism from academy_mode_spec.md --
+ *       ONLY call this with a smaller after.length when the shrink is
+ *       genuinely intended (e.g. a one-time ceiling normalization, or the
+ *       engine legitimately finding fewer non-zero-scoring regions this
+ *       season). Both directions are experimental -- expansion has been
+ *       spot-checked in-game; shrinking has been in-game verified for the
+ *       ceiling-normalization case (see shrink_test.cjs) but not yet
+ *       exercised through this exact function end-to-end in a live Apply.
  * @param {string} outputDir - where to place the new save copy
- * @returns {{ outputPath: string }}
+ * @returns {{ outputPath: string, verified: boolean, verificationError: string|null }}
  */
-async function writeUpdatedSave(savePath, updatesByRow4306, outputDir) {
+async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const base = path.basename(savePath);
@@ -225,16 +448,44 @@ async function writeUpdatedSave(savePath, updatesByRow4306, outputDir) {
   fs.copyFileSync(savePath, outputPath);
 
   const franchise = await Franchise.create(outputPath);
-  const pipelineInfluenceTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluence);
-  await pipelineInfluenceTable.readRecords();
+  const { teamsByIndex, pipelineInfluenceTable } = await readTeamPipelineMapping(franchise);
 
-  for (const [rowStr, update] of Object.entries(updatesByRow4306)) {
-    const row = Number(rowStr);
-    const record = pipelineInfluenceTable.records[row];
-    if (!record) continue;
-    record.InfluenceLevel = update.InfluenceLevel;
-    record.Pipeline = update.Pipeline;
-    record.InfluenceValue = update.InfluenceValue;
+  // Tracks, per team, exactly which rows ended up holding this team's
+  // data after any expansion -- needed for verification below, since
+  // expansion can add rows that weren't known before this function ran.
+  const finalRowsByTeam = {};
+
+  for (const [teamIndexStr, update] of Object.entries(teamUpdates)) {
+    const teamIndex = Number(teamIndexStr);
+    const teamInfo = teamsByIndex[teamIndex];
+    if (!teamInfo) continue;
+
+    let rows4306 = teamInfo.rows4306;
+    if (update.after.length > rows4306.length) {
+      rows4306 = await expandTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, update.after.length);
+      teamsByIndex[teamIndex].rows4306 = rows4306; // keep in sync so a later team in this same loop can't be handed the same orphaned row twice
+    } else if (update.after.length < rows4306.length) {
+      // Symmetric case: the engine legitimately returned fewer entries
+      // than this team currently has real slots for (see the
+      // "Engine implication" filter in computeTeamPipelines) -- shrink
+      // down to match, freeing the excess rows back to the shared pool.
+      // Same in-place sync as the expand branch above, for the same
+      // reason: a later academy team in this same commit needs to see
+      // these freed rows as available.
+      rows4306 = await shrinkTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenceTable, teamIndex, update.after.length);
+      teamsByIndex[teamIndex].rows4306 = rows4306;
+    }
+    finalRowsByTeam[teamIndex] = rows4306;
+
+    rows4306.forEach((rowIndex, i) => {
+      const [tier, pipeline, value] = update.after[i] || [];
+      if (tier === undefined) return;
+      const record = pipelineInfluenceTable.records[rowIndex];
+      if (!record) return;
+      record.InfluenceLevel = tier;
+      record.Pipeline = pipeline;
+      record.InfluenceValue = value;
+    });
   }
 
   await franchise.save();
@@ -249,17 +500,25 @@ async function writeUpdatedSave(savePath, updatesByRow4306, outputDir) {
     const verifyFranchise = await Franchise.create(outputPath);
     const verifyTable = verifyFranchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluence);
     await verifyTable.readRecords();
-    for (const [rowStr, update] of Object.entries(updatesByRow4306)) {
-      const row = Number(rowStr);
-      const record = verifyTable.records[row];
-      const matches = record
-        && record.InfluenceLevel === update.InfluenceLevel
-        && record.Pipeline === update.Pipeline
-        && record.InfluenceValue === update.InfluenceValue;
-      if (!matches) {
-        verified = false;
-        verificationError = `Row ${row} didn't match after writing (expected ${JSON.stringify(update)}, found ${record ? JSON.stringify({ InfluenceLevel: record.InfluenceLevel, Pipeline: record.Pipeline, InfluenceValue: record.InfluenceValue }) : 'no record at all'}).`;
-        break;
+
+    outer:
+    for (const [teamIndexStr, update] of Object.entries(teamUpdates)) {
+      const teamIndex = Number(teamIndexStr);
+      const rows4306 = finalRowsByTeam[teamIndex];
+      if (!rows4306) continue;
+      for (let i = 0; i < rows4306.length; i++) {
+        const [tier, pipeline, value] = update.after[i] || [];
+        if (tier === undefined) continue;
+        const record = verifyTable.records[rows4306[i]];
+        const matches = record
+          && record.InfluenceLevel === tier
+          && record.Pipeline === pipeline
+          && record.InfluenceValue === value;
+        if (!matches) {
+          verified = false;
+          verificationError = `Row ${rows4306[i]} (team index ${teamIndex}) didn't match after writing (expected [${tier}, ${pipeline}, ${value}], found ${record ? JSON.stringify({ InfluenceLevel: record.InfluenceLevel, Pipeline: record.Pipeline, InfluenceValue: record.InfluenceValue }) : 'no record at all'}).`;
+          break outer;
+        }
       }
     }
   } catch (err) {
@@ -281,4 +540,6 @@ module.exports = {
   readDynastyCode,
   readCurrentSeason,
   readUserTeam,
+  expandTeamPipelineSlots,
+  shrinkTeamPipelineSlots,
 };

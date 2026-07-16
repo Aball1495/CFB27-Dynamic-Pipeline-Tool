@@ -1,8 +1,11 @@
 # Dynamic Recruiting Pipeline Tool
 
-Recomputes each school's 10 active recruiting pipeline regions/tiers each
+Recomputes each school's active recruiting pipeline regions/tiers each
 preseason, based on roster composition, star-weighted quality, coach
 influence, and geography, blended against last season's persistent score.
+How many pipelines each team gets is configurable (up to 10 for regular
+teams; Army/Navy/Air Force can optionally get a much larger, more
+realistic footprint under Academy Mode -- see below).
 
 **Reads and writes your dynasty save file directly.** No exports from the
 Franchise Editor needed at all -- point this at your save, run it, get a
@@ -49,8 +52,9 @@ automatically on first launch.
    small, precise adjustments -- easier than dragging with a mouse when
    you're trying to land on an exact value.
 3. **Run engine** -- reads every team's roster, coaching staff, and current
-   pipeline data straight from the save, and computes new top-10 pipelines
-   for each.
+   pipeline data straight from the save, and computes new pipelines for
+   each (up to your configured max, or Academy Mode's target for any
+   teams covered by it).
 4. **Preview** -- review before/after for every team side by side before
    anything is written. Search/filter and select which teams to actually
    apply. A **filled dot (●)** next to a team's name means at least one
@@ -207,6 +211,55 @@ a great unofficial resource if you want to look up any team's or region's
 pipelines outside of this tool.
 
 ## Changelog
+
+**v0.6.0**
+- Fixed a real bug where any team with more than 30 real pipeline slots
+  would have every slot beyond 30 silently ignored on every future
+  Apply -- never read, never recalculated, just permanently frozen with
+  stale data. The old 30-slot read cap was chosen before this project
+  discovered the confirmed structural max is actually 42; the cap is
+  gone.
+- Replaced the old experimental "Expand teams with fewer real pipeline
+  slots" toggle with a single **Max pipelines per team** setting (1-10).
+  This is a genuine ceiling, not a floor: teams above it get shrunk down
+  to it (freeing rows back to a shared pool), and teams whose real
+  recruiting signal only supports fewer pipelines now legitimately come
+  back with fewer -- nothing pads a team's count back up with meaningless
+  filler just to hit a target number.
+- Added **Academy Mode**, under a new settings panel: Army, Navy, and
+  Air Force (or any teams you configure) get a much larger, more
+  realistic pipeline footprint reflecting their real-world national
+  recruiting reach, up to the confirmed structural max of 42 slots,
+  instead of the handful the base game gives them. Configurable per-team
+  behavior:
+  - **Target pipeline count** -- how many slots to bring these teams up to.
+  - **Uniform tier** -- lock every slot to the same tier (values still
+    vary naturally within that tier's range), or use a one-time
+    real-engine-computed snapshot instead.
+  - **Exempt** -- set up once, then completely excluded from every future
+    run. A fixed real-world trait, not a competitive ranking that
+    recalculates every season.
+- The engine itself now filters out any region whose score rounds to zero
+  before slicing to the target pipeline count, instead of always padding
+  a team's result to exactly N regardless of whether N regions actually
+  have a meaningful score.
+- Added the write-side capability to actually shrink a team's real slot
+  count when needed (unlinking excess slots and returning those rows to
+  the shared pool) -- the counterpart to the existing expansion capability,
+  and the first operation in this project that removes a real link a team
+  already has rather than adding one or updating a value. Confirmed at
+  the file level and in-game across several teams, including both a small
+  drop (11 -> 10 real slots) and a large one (15 -> 10), with the
+  remaining pipelines' content verified unchanged and the dropped ones
+  verified actually gone.
+- Fixed a bug that could crash Apply entirely ("Cannot read properties of
+  undefined") -- the write step was building its update data in the wrong
+  shape for the underlying save-writing code, left over from an earlier
+  version of that code path.
+- The Preview list now shows an "[Academy]" status badge (setup / exempt /
+  active) next to a team's name when Academy Mode is on, and "Select all"
+  now skips academy teams that are already fully set up and exempt, since
+  there's nothing to Apply for them.
 
 **v0.5.0**
 - After selecting a save, a small info bar now shows the current season,

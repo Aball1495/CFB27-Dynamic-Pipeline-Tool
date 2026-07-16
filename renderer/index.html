@@ -104,6 +104,51 @@
             <input type="range" id="slider-geoRadius" min="50" max="800" step="10" />
             <input type="number" id="num-geoRadius" min="50" max="800" step="10" class="weight-num" />
           </label>
+          <label class="slider-row">
+            <span>Max pipelines per team</span>
+            <input type="range" id="slider-maxPipelines" min="1" max="10" step="1" />
+            <input type="number" id="num-maxPipelines" min="1" max="10" step="1" class="weight-num" />
+          </label>
+          <p class="hint">Hard ceiling on how many real pipelines a regular team can have -- 11+ isn't supported. Teams above this get shrunk down to it; teams whose real recruiting signal only supports fewer legitimately end up with fewer (nothing pads a team back up with filler). Both directions confirmed working at the file level and in-game.</p>
+        </div>
+      </details>
+
+      <details class="advanced" id="academy-mode-details">
+        <summary>Academy Mode (Army / Navy / Air Force)</summary>
+        <div class="sub-settings">
+          <label class="checkbox-row experimental-row"><input type="checkbox" id="chk-academy-mode" /> Enable Academy Mode</label>
+          <p class="hint">Represents these teams' real-world national recruiting reach instead of the handful the base game gives them. When on, the teams checked below are exempt from the "Max pipelines" ceiling above and use their own settings here; every other team still follows the ceiling.</p>
+
+          <div id="academy-sub-settings">
+            <p class="hint" style="margin-bottom:0.3rem;">Teams included:</p>
+            <label class="checkbox-row"><input type="checkbox" id="chk-academy-army" /> Army</label>
+            <label class="checkbox-row"><input type="checkbox" id="chk-academy-navy" /> Navy</label>
+            <label class="checkbox-row"><input type="checkbox" id="chk-academy-airforce" /> Air Force</label>
+
+            <label class="slider-row">
+              <span>Target pipeline count</span>
+              <input type="range" id="slider-academyTarget" min="11" max="42" step="1" />
+              <input type="number" id="num-academyTarget" min="11" max="42" step="1" class="weight-num" />
+            </label>
+            <p class="hint">Confirmed structural max is 42 -- the save's list fields only go up to index 41.</p>
+
+            <label class="checkbox-row"><input type="checkbox" id="chk-academy-exempt" /> Set up once, then never recalculate again</label>
+            <p class="hint">When on, an academy team is set up on its first Apply and then completely excluded from every future run -- a fixed real-world trait, not a competitive ranking. When off, it runs through the normal engine every season instead, just targeting the count above rather than the max pipelines ceiling.</p>
+
+            <label class="checkbox-row"><input type="checkbox" id="chk-academy-uniform" /> Use the same tier for every pipeline</label>
+            <label class="slider-row" id="academy-uniform-tier-row">
+              <span>Uniform tier</span>
+              <select id="select-academyUniformTier">
+                <option value="NicheInterest">Niche Interest</option>
+                <option value="Respected">Respected</option>
+                <option value="Popular">Popular</option>
+                <option value="HouseholdName">Household Name</option>
+                <option value="CulturalPillar">Cultural Pillar</option>
+              </select>
+            </label>
+            <p class="hint">When off, a one-time real-engine-computed ranking is used instead -- varied, but still frozen after setup if "never recalculate" above is on.</p>
+            <p class="hint experimental-hint">Shrink and expand mechanics are confirmed working at the file level and in-game (see the standalone shrink/hardcap/academy test scripts). The combined flow through this app's own Apply button has <strong>not yet been verified end-to-end</strong> -- test on a disposable copy of your save first.</p>
+          </div>
         </div>
       </details>
 

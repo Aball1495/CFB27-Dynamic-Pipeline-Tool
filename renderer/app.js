@@ -83,6 +83,20 @@ function syncSlidersFromSettings() {
   document.getElementById('num-decay').value = settings.decay.toFixed(2);
   document.getElementById('slider-geoRadius').value = settings.geoRadius;
   document.getElementById('num-geoRadius').value = settings.geoRadius;
+  document.getElementById('slider-maxPipelines').value = settings.maxPipelines || 10;
+  document.getElementById('num-maxPipelines').value = settings.maxPipelines || 10;
+
+  document.getElementById('chk-academy-mode').checked = !!settings.academyMode;
+  const academyTeams = settings.academyTeams || [];
+  document.getElementById('chk-academy-army').checked = academyTeams.includes('Army');
+  document.getElementById('chk-academy-navy').checked = academyTeams.includes('Navy');
+  document.getElementById('chk-academy-airforce').checked = academyTeams.includes('Air Force');
+  document.getElementById('slider-academyTarget').value = settings.academyTargetCount || 42;
+  document.getElementById('num-academyTarget').value = settings.academyTargetCount || 42;
+  document.getElementById('chk-academy-exempt').checked = settings.academyExempt !== false;
+  document.getElementById('chk-academy-uniform').checked = settings.academyUniform !== false;
+  document.getElementById('select-academyUniformTier').value = settings.academyUniformTier || 'Respected';
+  updateAcademySubSettingsVisibility();
 
   const scheme = settings.mapColorScheme || 'team';
   document.getElementById('map-color-scheme-toggle').value = scheme;
@@ -101,6 +115,20 @@ function checkWeightSum() {
   } else {
     warning.classList.add('hidden');
   }
+}
+
+/**
+ * Academy Mode's sub-settings (which teams, target count, exempt,
+ * uniform tier) only matter once the feature itself is on, and the
+ * uniform-tier picker only matters when academyUniform is also checked
+ * -- hides both blocks otherwise rather than showing controls with no
+ * effect.
+ */
+function updateAcademySubSettingsVisibility() {
+  const academyOn = document.getElementById('chk-academy-mode').checked;
+  document.getElementById('academy-sub-settings').classList.toggle('hidden', !academyOn);
+  const uniformOn = document.getElementById('chk-academy-uniform').checked;
+  document.getElementById('academy-uniform-tier-row').classList.toggle('hidden', !uniformOn);
 }
 
 function updatePresetLabel() {
@@ -190,6 +218,47 @@ bindSliderNumberPair('slider-coachWeightDC', 'num-coachWeightDC', (v) => {
 });
 
 document.getElementById('select-ramp-mode').addEventListener('change', (e) => { settings.coachRampMode = e.target.value; window.api.saveSettings(settings); });
+bindSliderNumberPair('slider-maxPipelines', 'num-maxPipelines', (v) => {
+  settings.maxPipelines = Math.round(v);
+  window.api.saveSettings(settings);
+});
+
+function updateAcademyTeamsFromCheckboxes() {
+  const teams = [];
+  if (document.getElementById('chk-academy-army').checked) teams.push('Army');
+  if (document.getElementById('chk-academy-navy').checked) teams.push('Navy');
+  if (document.getElementById('chk-academy-airforce').checked) teams.push('Air Force');
+  settings.academyTeams = teams;
+  window.api.saveSettings(settings);
+}
+
+document.getElementById('chk-academy-mode').addEventListener('change', (e) => {
+  settings.academyMode = e.target.checked;
+  updateAcademySubSettingsVisibility();
+  window.api.saveSettings(settings);
+});
+document.getElementById('chk-academy-army').addEventListener('change', updateAcademyTeamsFromCheckboxes);
+document.getElementById('chk-academy-navy').addEventListener('change', updateAcademyTeamsFromCheckboxes);
+document.getElementById('chk-academy-airforce').addEventListener('change', updateAcademyTeamsFromCheckboxes);
+
+bindSliderNumberPair('slider-academyTarget', 'num-academyTarget', (v) => {
+  settings.academyTargetCount = Math.round(v);
+  window.api.saveSettings(settings);
+});
+
+document.getElementById('chk-academy-exempt').addEventListener('change', (e) => {
+  settings.academyExempt = e.target.checked;
+  window.api.saveSettings(settings);
+});
+document.getElementById('chk-academy-uniform').addEventListener('change', (e) => {
+  settings.academyUniform = e.target.checked;
+  updateAcademySubSettingsVisibility();
+  window.api.saveSettings(settings);
+});
+document.getElementById('select-academyUniformTier').addEventListener('change', (e) => {
+  settings.academyUniformTier = e.target.value;
+  window.api.saveSettings(settings);
+});
 document.getElementById('input-ramp-seasons').addEventListener('change', (e) => { settings.coachRampSeasons = parseInt(e.target.value, 10); window.api.saveSettings(settings); });
 
 bindSliderNumberPair('slider-decay', 'num-decay', (v) => {
@@ -294,7 +363,12 @@ function renderPreview() {
     const nameCell = document.createElement('div');
     nameCell.className = 'team-name';
     const nameSpan = document.createElement('span');
-    nameSpan.textContent = teamName + (changed ? ' \u25CF' : '');
+    const academyBadge = {
+      exempt: ' [Academy \u2014 exempt, no changes]',
+      setup: ' [Academy \u2014 setup]',
+      active: ' [Academy]',
+    }[engineResults[teamName].academyStatus] || '';
+    nameSpan.textContent = teamName + (changed ? ' \u25CF' : '') + academyBadge;
     nameCell.appendChild(nameSpan);
 
     const mapBtn = document.createElement('button');
@@ -589,7 +663,10 @@ document.getElementById('history-modal').addEventListener('click', (e) => {
 });
 
 document.getElementById('chk-select-all').addEventListener('change', (e) => {
-  const teamNames = Object.keys(engineResults);
+  // Exempt academy teams have nothing to apply (after mirrors prior) --
+  // selecting them is a harmless but pointless write. Select All skips
+  // them; a user can still check one individually if they really want to.
+  const teamNames = Object.keys(engineResults).filter((n) => engineResults[n].academyStatus !== 'exempt');
   if (e.target.checked) selectedTeams = new Set(teamNames);
   else selectedTeams = new Set();
   renderPreview();
