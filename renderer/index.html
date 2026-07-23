@@ -246,6 +246,24 @@
     </div>
   </div>
 
+  <!-- Fang's Tool order-of-operations modal -->
+  <div id="fang-tool-modal" class="map-modal hidden">
+    <div class="map-modal-content fang-modal-content">
+      <h3 class="fang-modal-title">Before this save loads...</h3>
+      <p class="hint">
+        If you use Fang's Recruiting Mod/Tool on this save, it MUST be run BEFORE this tool -- every
+        time, on every save, before you load it here. Running these out of order has caused save
+        corruption and the game hanging on its load screen.
+      </p>
+      <p class="fang-modal-question">Did you already run Fang's Tool on this save?</p>
+      <div class="fang-modal-buttons">
+        <button id="btn-fang-yes" class="btn btn-primary">Yes, I've run Fang's Tool</button>
+        <button id="btn-fang-no" class="btn btn-danger">No, I haven't run Fang's Tool -- I'll do that first</button>
+        <button id="btn-fang-na" class="btn">N/A, I'm not using Fang's Tool</button>
+      </div>
+    </div>
+  </div>
+
   <script src="vendor/d3.min.js"></script>
   <script src="vendor/topojson.min.js"></script>
   <script src="map.js"></script>

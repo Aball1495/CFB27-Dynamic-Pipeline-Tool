@@ -259,6 +259,8 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
     }
 
     try {
+      const recordedTeams = new Set();
+
       for (const teamName of teamNamesToApply) {
         const result = engineResults[teamName];
         if (!result) continue;
@@ -273,6 +275,22 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
               academyStatus: result.academyStatus || null,
             }
           : null;
+        recordSnapshot(app, dynastyCode, season, teamName, result.after, meta);
+        recordedTeams.add(teamName);
+      }
+
+      // Exempt academy teams deliberately never appear in
+      // teamNamesToApply (nothing to write -- see the "Select all" skip
+      // in app.js), but the season still genuinely happened for them.
+      // Without this, their History timeline just stops at whatever
+      // season they became exempt, while every other team keeps getting
+      // a fresh entry each Apply -- confusing when comparing across
+      // teams. Record the same (unchanged) snapshot for them too, on
+      // every Apply, even though nothing was written to the save file.
+      for (const [teamName, result] of Object.entries(engineResults)) {
+        if (recordedTeams.has(teamName)) continue;
+        if (result.academyStatus !== 'exempt') continue;
+        const meta = settings ? { targetCount: settings.academyTargetCount, academyStatus: 'exempt' } : null;
         recordSnapshot(app, dynastyCode, season, teamName, result.after, meta);
       }
     } catch (err) {

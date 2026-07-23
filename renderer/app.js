@@ -16,9 +16,58 @@ async function init() {
 
 let savePath = null;
 
+/**
+ * Shows the Fang's Tool order-of-operations modal and resolves with
+ * 'yes' | 'no' | 'na' depending on which button gets clicked. A custom
+ * modal rather than confirm() because this genuinely needs three
+ * distinct answers, not just OK/Cancel -- "no" and "n/a" both mean
+ * "proceed is not appropriate right now" is wrong; only "no" should
+ * actually stop the save from loading.
+ */
+function askFangToolStatus() {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('fang-tool-modal');
+    const btnYes = document.getElementById('btn-fang-yes');
+    const btnNo = document.getElementById('btn-fang-no');
+    const btnNa = document.getElementById('btn-fang-na');
+
+    const cleanup = (result) => {
+      modal.classList.add('hidden');
+      btnYes.removeEventListener('click', onYes);
+      btnNo.removeEventListener('click', onNo);
+      btnNa.removeEventListener('click', onNa);
+      resolve(result);
+    };
+    const onYes = () => cleanup('yes');
+    const onNo = () => cleanup('no');
+    const onNa = () => cleanup('na');
+
+    btnYes.addEventListener('click', onYes);
+    btnNo.addEventListener('click', onNo);
+    btnNa.addEventListener('click', onNa);
+    modal.classList.remove('hidden');
+  });
+}
+
 document.getElementById('btn-select-save').addEventListener('click', async () => {
   const picked = await window.api.selectSaveFile();
   if (!picked) return;
+
+  // If Fang's Recruiting Mod/Tool is used on this save at all, it has to
+  // run BEFORE this tool, every time -- running these out of order has
+  // caused real save corruption / the game hanging on the load screen.
+  // This can't be enforced automatically (no way to detect whether
+  // Fang's tool has touched a given save), so this is a reminder +
+  // explicit acknowledgment. Only an actual "no" stops the save from
+  // loading -- "yes" and "n/a" both mean it's fine to proceed.
+  const fangStatus = await askFangToolStatus();
+  if (fangStatus === 'no') {
+    alert(
+      "Close this, run Fang's Recruiting Mod/Tool on your save first, then come back and select the resulting save file here."
+    );
+    return;
+  }
+
   savePath = picked;
   document.getElementById('save-path-display').textContent = `Selected: ${savePath}`;
   await refreshSaveInfoBar();

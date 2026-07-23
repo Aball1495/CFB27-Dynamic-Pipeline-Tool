@@ -224,6 +224,30 @@ pipelines outside of this tool.
 
 ## Changelog
 
+**v0.8.0**
+- Investigated a reported save crash at the offseason after season 2, on
+  a save also touched by a separate community recruiting tool. Built a
+  new read-only save-integrity diagnostic and confirmed this tool's own
+  pipeline data was structurally clean -- no cross-team row collisions,
+  no out-of-bounds references, no malformed content. Also ruled out one
+  candidate third-party tool entirely by inspecting its own code: it
+  never touches pipeline data in any way. The actual root cause turned
+  out to be an order-of-operations issue with a different tool, Fang's
+  Recruiting Mod/Tool -- it has to run BEFORE this tool, every time, on
+  every save; running them in the wrong order caused the corruption.
+- Added a reminder prompt when selecting a save file, asking whether
+  Fang's Tool has already been run on it (or isn't being used at all).
+  Answering "no" stops the save from loading here and reminds you to run
+  Fang's Tool first; "yes" or "n/a" both proceed normally.
+- Changed the output filename format from a long, dash-heavy full
+  timestamp (e.g. `DYNASTY-FP-PIPELINES-2026-07-23T14-35-10-123Z`) to a
+  short month+day suffix (e.g. `DYNASTY-FPJUL23`) -- the long format was
+  reported to make the game hang on its load screen for some users.
+  Re-Applying the same save more than once on the same day gets a single
+  extra letter appended (`B`, `C`, `D`...) instead of reintroducing a
+  long timestamp, so collisions stay impossible without giving up the
+  short, clean naming.
+
 **v0.7.0**
 - Investigated a community report that removed/shrunk pipelines can
   reappear (or have their tier/value silently overwritten) after an

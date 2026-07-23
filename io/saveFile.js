@@ -439,11 +439,39 @@ function readPipelineRow(pipelineInfluenceTable, rowNumber) {
  * @param {string} outputDir - where to place the new save copy
  * @returns {{ outputPath: string, verified: boolean, verificationError: string|null }}
  */
+/**
+ * Builds a short, dash-free output filename: the original save's name,
+ * immediately followed by a 5-character month+day suffix (e.g.
+ * "DYNASTY-FP" -> "DYNASTY-FPJUL23"). Replaces the old
+ * "<name>-PIPELINES-<full ISO timestamp>" format, which produced very
+ * long filenames packed with dashes -- reported to cause the game to
+ * hang on its load screen for some users.
+ *
+ * Same-day re-Applies of the same base file (e.g. repeated testing) are
+ * handled by appending a single extra letter (B, C, D...) rather than
+ * reintroducing a long timestamp -- keeps collisions impossible while
+ * staying just as short and dash-free for every case after the first.
+ */
+function buildShortOutputPath(outputDir, base, date) {
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const suffix = `${MONTHS[date.getMonth()]}${String(date.getDate()).padStart(2, '0')}`;
+
+  let candidate = path.join(outputDir, `${base}${suffix}`);
+  if (!fs.existsSync(candidate)) return candidate;
+
+  for (let i = 1; i < 26; i++) {
+    candidate = path.join(outputDir, `${base}${suffix}${String.fromCharCode(65 + i)}`); // B, C, D...
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  // Extremely unlikely fallback -- more than 26 Applies of the exact
+  // same base file on the exact same day.
+  return path.join(outputDir, `${base}${suffix}Z${Date.now()}`);
+}
+
 async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const base = path.basename(savePath);
-  const outputPath = path.join(outputDir, `${base}-PIPELINES-${timestamp}`);
+  const outputPath = buildShortOutputPath(outputDir, base, new Date());
 
   fs.copyFileSync(savePath, outputPath);
 
