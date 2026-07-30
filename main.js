@@ -112,7 +112,26 @@ ipcMain.handle('get-save-info', async (event, { savePath }) => {
   const dynastyCode = await readDynastyCode(franchise);
   const season = await readCurrentSeason(franchise);
   const userTeam = await readUserTeam(franchise);
-  return { dynastyCode, season, userTeam };
+
+  // Pipeline table capacity -- surfaced in the UI as a simple "used/total"
+  // indicator. Cheap to compute (reuses the same mapping run-engine
+  // already needs) and worth keeping visible given the table has a hard
+  // fixed ceiling (confirmed 1500 rows) that row collisions and any future
+  // shrink/expand activity both draw against.
+  let pipelineCapacity = null;
+  try {
+    const { teamsByIndex, pipelineInfluenceTable } = await readTeamPipelineMapping(franchise);
+    const referencedRows = new Set();
+    for (const info of Object.values(teamsByIndex)) {
+      for (const row of info.rows4306) referencedRows.add(row);
+    }
+    pipelineCapacity = { used: referencedRows.size, total: pipelineInfluenceTable.records.length };
+  } catch (err) {
+    console.error('Could not compute pipeline capacity:', err);
+    // Non-fatal -- the rest of the save info is still useful without it.
+  }
+
+  return { dynastyCode, season, userTeam, pipelineCapacity };
 });
 
 /**
@@ -131,6 +150,40 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
   // setting is on; an empty Set means the per-team check below is always
   // false, so this costs nothing when the feature is off.
   const academyTeamSet = new Set(settings.academyMode ? (settings.academyTeams || []) : []);
+
+  // CONFIRMED BUG (2026-07-29): academy setup used to just call
+  // buildAcademyAssignment() every Apply until a team reached
+  // academyTargetCount real slots, with no memory of a PRIOR incomplete
+  // attempt's random selection. If a team needed more than one Apply to
+  // actually reach 42 real rows (write capacity limited that Apply, for
+  // any reason), each attempt picked a BRAND NEW random 42-region subset
+  // -- and any rows already written from an earlier attempt's different
+  // random selection were never cleaned up, just left behind. Confirmed
+  // live: Air Force ended up with "Wisconsin" stored 4 separate times at
+  // different values, "Arkansas" 3 times, etc. -- leftover debris from
+  // several different incomplete setup attempts, all still sitting in
+  // the save.
+  //
+  // Fix: setup must be ATOMIC. A team either goes from its current real
+  // count straight to academyTargetCount in ONE Apply, or isn't touched
+  // at all this Apply -- no partial, in-between state is ever written.
+  // That means checking, up front, whether there's actually enough spare
+  // capacity (unowned/reclaimable rows) to cover every academy team that
+  // still needs setup THIS Apply, before committing any of them to a
+  // setup pass. This doesn't retroactively clean up debris from BEFORE
+  // this fix existed -- that's a separate, one-time cleanup this project
+  // still needs to write. It only prevents new debris going forward.
+  let spareCapacity = 0;
+  {
+    const referencedRows = new Set();
+    for (const info of Object.values(teamsByIndex)) {
+      for (const row of info.rows4306) referencedRows.add(row);
+    }
+    for (let i = 0; i < pipelineInfluenceTable.records.length; i++) {
+      if (!referencedRows.has(i)) spareCapacity++;
+    }
+  }
+  let spareCapacityRemaining = spareCapacity;
 
   const results = {};
   for (const [teamIndexStr, teamInfo] of Object.entries(teamsByIndex)) {
@@ -172,6 +225,31 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
       // team hasn't reached academyTargetCount real slots yet (the
       // one-time setup pass -- uniform tier, or a single varied
       // real-engine snapshot).
+      //
+      // ATOMIC CHECK: this team needs (academyTargetCount - current real
+      // count) additional rows to complete setup in this one Apply. If
+      // spareCapacityRemaining can't cover that, skip setup entirely for
+      // this team THIS Apply -- leave it completely unchanged (mirror
+      // exempt's "after: prior" behavior) rather than writing a partial
+      // selection that would need cleanup later. spareCapacityRemaining
+      // is decremented as each academy team's need is provisionally
+      // reserved, so teams processed earlier in this same loop don't
+      // oversubscribe capacity that a later team also needs.
+      const rowsNeededForSetup = Math.max(0, settings.academyTargetCount - teamInfo.rows4306.length);
+      if (rowsNeededForSetup > spareCapacityRemaining) {
+        results[teamInfo.displayName] = {
+          teamIndex,
+          rows4306: teamInfo.rows4306,
+          prior,
+          after: prior,
+          coaches,
+          academyStatus: 'setup-deferred',
+          academySetupDeferredReason: `Needs ${rowsNeededForSetup} more free row(s) to complete Academy setup atomically; only ${spareCapacityRemaining} available this Apply. Skipped -- will retry once capacity allows, rather than writing a partial setup.`,
+        };
+        continue;
+      }
+      spareCapacityRemaining -= rowsNeededForSetup;
+
       const after = (settings.academyExempt && settings.academyUniform)
         ? buildAcademyAssignment(settings.academyUniformTier, settings.academyTargetCount)
         : computeTeamPipelines(teamInfo.displayName, players, coaches, prior, regionCentroids, settings, settings.academyTargetCount);
@@ -225,7 +303,15 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
     if (!result) continue;
     teamUpdates[result.teamIndex] = { after: result.after };
   }
-  const writeResult = await writeUpdatedSave(savePath, teamUpdates, outputDir);
+  // Pass 5 (automatic over-cap capacity reclamation, see saveFile.js)
+  // needs to know the real cap and which teams are academy-exempt --
+  // driven by the actual settings, never hardcoded, so a custom academy
+  // list is respected correctly.
+  const capacityReclaim = {
+    maxPipelines: settings ? settings.maxPipelines : null,
+    academyTeamNames: (settings && settings.academyMode) ? (settings.academyTeams || []) : [],
+  };
+  const writeResult = await writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclaim);
 
   // Read-only pass, separate from the write above, just to key this
   // season's history snapshot. Never touches write mode on the original.

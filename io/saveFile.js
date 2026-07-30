@@ -468,7 +468,7 @@ function buildShortOutputPath(outputDir, base, date) {
   return path.join(outputDir, `${base}${suffix}Z${Date.now()}`);
 }
 
-async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
+async function writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclaim = null) {
   fs.mkdirSync(outputDir, { recursive: true });
   const base = path.basename(savePath);
   const outputPath = buildShortOutputPath(outputDir, base, new Date());
@@ -477,6 +477,131 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
 
   const franchise = await Franchise.create(outputPath);
   const { teamsByIndex, pipelineInfluenceTable } = await readTeamPipelineMapping(franchise);
+  const pipelineTableIdForIntegrityPass = pipelineInfluenceTable.header.tableId;
+
+  // ---- Integrity pass: fix pre-existing row problems before anything else runs ----
+  // Two confirmed real problems, found via extensive testing on real saves:
+  //   1. CROSS-TEAM COLLISIONS -- the same row genuinely, structurally
+  //      referenced by two different teams' real slots at once (or twice
+  //      by the same team through two different slot fields). Left
+  //      unfixed, this causes a "didn't match after writing" verification
+  //      failure the moment Apply tries to write both teams' different
+  //      content to the same physical row.
+  //   2. WITHIN-TEAM HOLES -- a team's own slot list has an invalid
+  //      (null, or pointing at the wrong table) slot with a REAL slot
+  //      still sitting somewhere after it. readTeamPipelineMapping only
+  //      ever sees the contiguous prefix up to the first invalid slot,
+  //      so any real data past a hole is invisible to every other part
+  //      of this tool -- and is exactly the shape of null-reference
+  //      damage confirmed to have caused real, reproducible crashes.
+  //
+  // Both get fixed the same simple way: give the affected slot a genuine,
+  // uniquely-owned orphan row instead of whatever invalid/duplicate thing
+  // it currently points at. No shared placeholder row, no change to how
+  // shrink or expand behave -- this only cleans up rows that were already
+  // broken before this Apply ever started.
+  //
+  // Reported, not silent -- see integrityFixesApplied in this function's
+  // return value.
+  const integrityFixesApplied = [];
+  {
+    const teamTableForIntegrity = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+    await teamTableForIntegrity.readRecords();
+    const listTableForIntegrity = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluenceList);
+    await listTableForIntegrity.readRecords();
+
+    function isValidPipelineRef(ref) {
+      return !!ref && ref.tableId === pipelineTableIdForIntegrityPass;
+    }
+
+    const claimedRows = new Set();
+    for (const info of Object.values(teamsByIndex)) {
+      for (const row of info.rows4306) claimedRows.add(row);
+    }
+    function takeFreshOrphanRow() {
+      for (let i = 0; i < pipelineInfluenceTable.records.length; i++) {
+        if (!claimedRows.has(i)) {
+          claimedRows.add(i);
+          return i;
+        }
+      }
+      return null;
+    }
+
+    // Read every team's FULL slot pattern up front (not just the
+    // contiguous prefix readTeamPipelineMapping already computed) --
+    // needed to see holes and to detect which rows are shared by more
+    // than one team.
+    const fullSlotsByTeam = {};
+    const rowOwnerCount = new Map();
+    for (const teamRecord of teamTableForIntegrity.records) {
+      if (!teamRecord.DisplayName || teamRecord.TeamIndex === 255) continue;
+      const listRef = teamRecord.getFieldByKey('SchoolPipelineInfluenceList').referenceData;
+      if (!listRef || listRef.tableId === 0) continue;
+      const listRecord = listTableForIntegrity.records[listRef.rowNumber];
+      if (!listRecord) continue;
+
+      const slots = [];
+      for (let i = 0; i < 50; i++) {
+        const field = listRecord.getFieldByKey(`SchoolPipelineInfluence${i}`);
+        if (!field) break;
+        const ref = field.referenceData;
+        const valid = isValidPipelineRef(ref);
+        slots.push({ index: i, field, valid, row: valid ? ref.rowNumber : null });
+        if (valid) rowOwnerCount.set(ref.rowNumber, (rowOwnerCount.get(ref.rowNumber) || 0) + 1);
+      }
+      fullSlotsByTeam[teamRecord.TeamIndex] = { teamName: teamRecord.DisplayName, slots };
+    }
+
+    for (const [teamIndex, { teamName, slots }] of Object.entries(fullSlotsByTeam)) {
+      // Cross-team (or same-team-twice) collisions: any valid slot whose
+      // row is claimed more than once total, across everyone.
+      for (const slot of slots) {
+        if (slot.valid && rowOwnerCount.get(slot.row) > 1) {
+          const freshRow = takeFreshOrphanRow();
+          if (freshRow === null) {
+            console.error(`Integrity pass: no free row available to resolve a collision for ${teamName} slot ${slot.index} -- left as-is.`);
+            continue;
+          }
+          const rec = pipelineInfluenceTable.records[freshRow];
+          rec.InfluenceLevel = 'Unrecognized';
+          rec.InfluenceValue = 0;
+          slot.field.value = encodeReference(pipelineTableIdForIntegrityPass, freshRow);
+          rowOwnerCount.set(slot.row, rowOwnerCount.get(slot.row) - 1);
+          integrityFixesApplied.push({ kind: 'collision', teamName, slotIndex: slot.index, oldRow: slot.row, newRow: freshRow });
+
+          // If this slot was one of the team's REAL, counted slots (not
+          // sitting inside/past an existing hole), keep teamsByIndex in
+          // sync -- every later pass (feasibility check, shrink, expand,
+          // write) trusts rows4306 to reflect what's actually there now.
+          const info = teamsByIndex[Number(teamIndex)];
+          if (info && slot.index < info.rows4306.length && info.rows4306[slot.index] === slot.row) {
+            info.rows4306[slot.index] = freshRow;
+          }
+        }
+      }
+
+      // Within-team holes: any invalid slot with a real slot after it.
+      let sawRealAfter = false;
+      for (let i = slots.length - 1; i >= 0; i--) {
+        if (slots[i].valid) {
+          sawRealAfter = true;
+        } else if (sawRealAfter) {
+          const freshRow = takeFreshOrphanRow();
+          if (freshRow === null) {
+            console.error(`Integrity pass: no free row available to resolve a hole for ${teamName} slot ${slots[i].index} -- left as-is.`);
+            continue;
+          }
+          const rec = pipelineInfluenceTable.records[freshRow];
+          rec.InfluenceLevel = 'Unrecognized';
+          rec.InfluenceValue = 0;
+          slots[i].field.value = encodeReference(pipelineTableIdForIntegrityPass, freshRow);
+          integrityFixesApplied.push({ kind: 'hole', teamName, slotIndex: slots[i].index, newRow: freshRow });
+        }
+      }
+    }
+  }
+  // ---- End integrity pass ----
 
   // ---- Upfront feasibility check ----
   // Compute total demand (every expansion's need) against total supply
@@ -506,13 +631,25 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
   }
   const totalSupply = totalFreedByShrinking + existingOrphans;
   if (totalDemand > totalSupply) {
+    // Persist any integrity fixes already made above, even though the
+    // REQUESTED Apply can't proceed -- those fixes are independent,
+    // legitimate cleanup and shouldn't be thrown away just because this
+    // specific request doesn't fit.
+    if (integrityFixesApplied.length > 0) {
+      await franchise.save();
+    }
     return {
-      outputPath: null,
+      outputPath: integrityFixesApplied.length > 0 ? outputPath : null,
       verified: false,
       verificationError:
         `Not enough unused pipeline rows to make this Apply work: need ${totalDemand} new slots total, ` +
         `only ${totalSupply} would be available (${totalFreedByShrinking} freed by shrinking + ${existingOrphans} already unused). ` +
-        `Nothing was written -- try a smaller Academy Mode target count, or apply fewer teams at once.`,
+        `Nothing from this specific request was written` +
+        (integrityFixesApplied.length > 0 ? `, but ${integrityFixesApplied.length} pre-existing integrity fix(es) were saved. ` : '. ') +
+        `Try a smaller Academy Mode target count, or apply fewer teams at once.`,
+      integrityFixesApplied,
+      pipelineInitialInfluenceReset: [],
+      capacityReclaimed: [],
     };
   }
 
@@ -526,6 +663,8 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
   // screen, with no indication anything failed except the DevTools
   // console.
   let finalRowsByTeam;
+  let pipelineInitialInfluenceReset = [];
+  const capacityReclaimed = [];
   try {
     // ---- Pass 1: shrink everyone that needs it, FIRST ----
     // Frees rows back to the shared pool before anyone tries to draw from
@@ -582,12 +721,125 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
       });
     }
 
+    // ---- PipelineInitialInfluence reset ----
+    // CONFIRMED via extensive multi-season testing: this field
+    // occasionally drifts to a nonzero value through ordinary base-game
+    // simulation -- not written by this tool, not by any other tool
+    // this project tested against. A nonzero value here was confirmed
+    // (across four checkpoints spanning a full season-transition cycle)
+    // to be the actual load-bearing cause of a real, reproducible
+    // crash. A save with genuinely null pipeline references AND a clean
+    // (zeroed) PipelineInitialInfluence across every team survived
+    // multiple full season transitions with no crash. Resetting this on
+    // every Apply is cheap insurance against drift that happened during
+    // ordinary play since the last Apply.
+    //
+    // Reported, not silent -- see pipelineInitialInfluenceReset in this
+    // function's return value.
+    {
+      const teamTableForReset = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+      await teamTableForReset.readRecords();
+      for (const record of teamTableForReset.records) {
+        if (!record.DisplayName || record.TeamIndex === 255) continue;
+        const field = record._fields.PipelineInitialInfluence;
+        if (!field) continue;
+        const currentValue = record.PipelineInitialInfluence;
+        const isZero = typeof currentValue === 'string' && /^0+$/.test(currentValue);
+        if (isZero) continue;
+
+        pipelineInitialInfluenceReset.push({
+          teamIndex: record.TeamIndex,
+          teamName: record.DisplayName,
+          previousValue: currentValue,
+        });
+        field.value = NULL_REFERENCE; // all-zero bit string, same width as this field
+      }
+    }
+
+    // ---- Pass 5: reclaim capacity from any non-academy team over cap ----
+    // CONFIRMED (2026-07-30): this table's 1500-row capacity can fill
+    // completely within a single season under real play. Whatever the
+    // ultimate cause (still under investigation -- possibly recurring
+    // integrity-pass fixes each consuming a fresh, never-reused row,
+    // possibly genuine engine-driven growth), running this every Apply
+    // is a cheap, safe backstop: any non-academy team currently sitting
+    // above the cap gets trimmed back down to it, keeping their
+    // highest-value pipelines and freeing the rest back into the pool.
+    // Academy teams are completely excluded via capacityReclaim's
+    // academyTeamNames, driven by the real settings.academyTeams --
+    // NOT hardcoded, so a custom academy list is respected correctly.
+    //
+    // Opt-in: only runs if the caller actually passes capacityReclaim
+    // (see main.js's call site). Existing callers that don't pass it
+    // are completely unaffected.
+    //
+    // Reported, not silent -- see capacityReclaimed in this function's
+    // return value.
+    if (capacityReclaim && capacityReclaim.maxPipelines) {
+      const maxPipelines = capacityReclaim.maxPipelines;
+      const academyTeamNames = new Set(capacityReclaim.academyTeamNames || []);
+
+      const teamTableForReclaim = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+      await teamTableForReclaim.readRecords();
+      const listTableForReclaim = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluenceList);
+      await listTableForReclaim.readRecords();
+      const pipelineTableIdForReclaim = pipelineInfluenceTable.header.tableId;
+
+      for (const teamRecord of teamTableForReclaim.records) {
+        if (!teamRecord.DisplayName || teamRecord.TeamIndex === 255) continue;
+        if (academyTeamNames.has(teamRecord.DisplayName)) continue;
+
+        const info = teamsByIndex[teamRecord.TeamIndex];
+        if (!info || info.rows4306.length <= maxPipelines) continue;
+
+        const withValues = info.rows4306.map((row) => ({
+          row,
+          value: pipelineInfluenceTable.records[row] ? pipelineInfluenceTable.records[row].InfluenceValue : 0,
+        }));
+        withValues.sort((a, b) => b.value - a.value);
+        const orderedKeep = withValues.slice(0, maxPipelines).map((w) => w.row);
+        const drop = withValues.slice(maxPipelines);
+
+        const listRef = teamRecord.getFieldByKey('SchoolPipelineInfluenceList').referenceData;
+        const listRecord = listTableForReclaim.records[listRef.rowNumber];
+
+        for (let i = 0; i < info.rows4306.length; i++) {
+          const field = listRecord.getFieldByKey(`SchoolPipelineInfluence${i}`);
+          if (!field) break;
+          if (i < orderedKeep.length) {
+            field.value = encodeReference(pipelineTableIdForReclaim, orderedKeep[i]);
+          } else {
+            field.value = NULL_REFERENCE;
+          }
+        }
+        for (const d of drop) {
+          const rec = pipelineInfluenceTable.records[d.row];
+          if (rec) {
+            rec.InfluenceLevel = 'Unrecognized';
+            rec.InfluenceValue = 0;
+          }
+        }
+
+        info.rows4306 = orderedKeep;
+        capacityReclaimed.push({
+          teamName: teamRecord.DisplayName,
+          previousCount: withValues.length,
+          newCount: maxPipelines,
+          rowsFreed: drop.length,
+          droppedValues: drop.map((d) => d.value),
+        });
+      }
+    }
+
     await franchise.save();
   } catch (err) {
     return {
       outputPath: null,
       verified: false,
       verificationError: `Apply failed before finishing: ${err.message}. Nothing in this output file should be trusted -- please report this.`,
+      integrityFixesApplied,
+      pipelineInitialInfluenceReset: [],
+      capacityReclaimed,
     };
   }
 
@@ -627,7 +879,7 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir) {
     verificationError = `Could not verify the write: ${err.message}`;
   }
 
-  return { outputPath, verified, verificationError };
+  return { outputPath, verified, verificationError, integrityFixesApplied, pipelineInitialInfluenceReset, capacityReclaimed };
 }
 
 module.exports = {

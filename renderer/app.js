@@ -87,9 +87,31 @@ async function refreshSaveInfoBar() {
   try {
     const info = await window.api.getSaveInfo(savePath);
     const teamName = info.userTeam ? info.userTeam.displayName : null;
-    textEl.textContent = teamName
+    let text = teamName
       ? `Season ${info.season} \u2014 Playing as ${teamName} \u2014 Dynasty ${info.dynastyCode}`
       : `Season ${info.season} \u2014 Dynasty ${info.dynastyCode}`;
+
+    // Capacity indicator -- see get-save-info's pipelineCapacity in
+    // main.js. Non-fatal if it couldn't be computed (older save format,
+    // read error, etc.) -- just omitted rather than breaking the rest of
+    // this info bar.
+    //
+    // CONFIRMED (2026-07-30, ~10 seasons of real testing): hitting full
+    // capacity BETWEEN Applies is normal, not a sign of a problem --
+    // the tool only enforces the cap (and reclaims capacity via Pass 5,
+    // see saveFile.js) at the moment of Apply. Ordinary recruiting drift
+    // between Applies can push usage all the way to 1500/1500 with zero
+    // correlation to any crash, and it reliably clears back down the
+    // next time Apply runs. The warning that used to fire here was
+    // consistently a false alarm in practice, so it's been removed --
+    // the row count itself is still shown, just without an alarming
+    // threshold attached to it.
+    if (info.pipelineCapacity) {
+      const { used, total } = info.pipelineCapacity;
+      text += ` \u2014 ${used}/${total} pipeline rows`;
+    }
+
+    textEl.textContent = text;
 
     if (teamName) {
       const colors = teamColors[teamName];
@@ -767,6 +789,71 @@ function updateSelectedCount() {
   document.getElementById('btn-apply').disabled = selectedTeams.size === 0;
 }
 
+/**
+ * Formats writeUpdatedSave's pipelineInitialInfluenceReset,
+ * integrityFixesApplied, and capacityReclaimed arrays (already flowing
+ * through commit-changes's return value with no main.js changes needed)
+ * into a short, human-readable summary. Returns null when there's
+ * nothing worth mentioning, so the caller can skip rendering an
+ * empty/redundant line.
+ *
+ * All three fixes happen silently inside writeUpdatedSave -- this is
+ * purely about making that visible after the fact, not changing what
+ * happens.
+ *
+ * integrityFixesApplied entries look like:
+ *   { kind: 'collision', teamName, slotIndex, oldRow, newRow }
+ *   { kind: 'hole', teamName, slotIndex, newRow }
+ */
+function formatApplySummary(result) {
+  const lines = [];
+
+  const resets = result.pipelineInitialInfluenceReset || [];
+  if (resets.length > 0) {
+    const names = resets.map((r) => r.teamName).join(', ');
+    lines.push(
+      resets.length === 1
+        ? `Reset PipelineInitialInfluence drift for ${names}.`
+        : `Reset PipelineInitialInfluence drift for ${resets.length} team(s): ${names}.`
+    );
+  }
+
+  const fixes = result.integrityFixesApplied || [];
+  if (fixes.length > 0) {
+    const collisions = fixes.filter((f) => f.kind === 'collision');
+    const holes = fixes.filter((f) => f.kind === 'hole');
+    if (collisions.length > 0) {
+      const names = collisions.map((f) => f.teamName).join(', ');
+      lines.push(
+        collisions.length === 1
+          ? `Fixed 1 row collision (${names}).`
+          : `Fixed ${collisions.length} row collision(s): ${names}.`
+      );
+    }
+    if (holes.length > 0) {
+      const names = holes.map((f) => f.teamName).join(', ');
+      lines.push(
+        holes.length === 1
+          ? `Fixed 1 pre-existing gap in the pipeline list (${names}).`
+          : `Fixed ${holes.length} pre-existing gap(s) in the pipeline list: ${names}.`
+      );
+    }
+  }
+
+  const reclaimed = result.capacityReclaimed || [];
+  if (reclaimed.length > 0) {
+    const totalRowsFreed = reclaimed.reduce((sum, r) => sum + r.rowsFreed, 0);
+    const names = reclaimed.map((r) => r.teamName).join(', ');
+    lines.push(
+      reclaimed.length === 1
+        ? `Reclaimed capacity from 1 over-cap team (${names}), freeing ${totalRowsFreed} row(s).`
+        : `Reclaimed capacity from ${reclaimed.length} over-cap team(s): ${names} (${totalRowsFreed} row(s) freed total).`
+    );
+  }
+
+  return lines.length > 0 ? lines.join(' ') : null;
+}
+
 // ---- Apply ----
 
 document.getElementById('btn-apply').addEventListener('click', async () => {
@@ -806,11 +893,14 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
     return;
   }
 
+  const applySummary = formatApplySummary(result);
+
   resultDiv.innerHTML = `
     <div>New save file created: <strong>${result.outputPath}</strong></div>
     <div class="hint">Load this save in-game to use the recomputed pipelines. Your original save was never touched.</div>
     ${result.verified === true ? '<div class="verified-ok">\u2713 Write verified -- re-read the new file and confirmed every change landed correctly.</div>' : ''}
     ${result.verified === false ? `<div class="warning-severe">This save may not have written correctly -- ${result.verificationError || 'a post-write check failed.'} Don't load this save yet; re-run Apply, and if this keeps happening, something's genuinely wrong and worth reporting.</div>` : ''}
+    ${applySummary ? `<div class="hint">${applySummary}</div>` : ''}
     ${result.dynastyHistorySeasonWarning ? `<div class="warning">${result.dynastyHistorySeasonWarning}</div>` : ''}
     ${result.historyWarning ? `<div class="warning">${result.historyWarning}</div>` : ''}
   `;
