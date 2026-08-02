@@ -858,13 +858,10 @@ function formatApplySummary(result) {
 
 document.getElementById('btn-apply').addEventListener('click', async () => {
   const confirmed = confirm(
-    `This will write a brand new save file copy with recomputed pipeline values for ${selectedTeams.size} team(s). ` +
-    `Your original save is never modified. Continue?`
+    `This will overwrite your save file with recomputed pipeline values for ${selectedTeams.size} team(s). ` +
+    `A backup of your current save is made automatically first (Pipeline Backup folder, next to your save file). Continue?`
   );
   if (!confirmed) return;
-
-  const outputDir = await window.api.selectOutputDir();
-  if (!outputDir) return;
 
   const resultDiv = document.getElementById('apply-result');
   resultDiv.classList.remove('hidden');
@@ -872,7 +869,7 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
 
   let result;
   try {
-    result = await window.api.commitChanges(savePath, engineResults, [...selectedTeams], outputDir, settings);
+    result = await window.api.commitChanges(savePath, engineResults, [...selectedTeams], null, settings);
   } catch (err) {
     // Something threw that even writeUpdatedSave's own try/catch didn't
     // catch cleanly (an IPC-layer issue, or an error in the history-
@@ -881,14 +878,15 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
     // completely untouched, with no indication anything failed except
     // the DevTools console -- silently misleading, since it looked like
     // nothing had happened rather than like something had gone wrong.
-    resultDiv.innerHTML = `<div class="warning-severe">Apply failed unexpectedly: ${err.message || err}. Nothing should have been written to a new file, but don't assume that -- check for a new file in your chosen output folder before trusting anything from this attempt.</div>`;
+    resultDiv.innerHTML = `<div class="warning-severe">Apply failed unexpectedly: ${err.message || err}. Your original save should NOT have been modified -- a backup from just before this attempt should still be sitting in your save folder's "Pipeline Backup" subfolder either way, but check there before trusting anything from this attempt.</div>`;
     return;
   }
 
   if (!result.outputPath) {
     // Clean, expected failure (e.g. the upfront capacity check in
-    // writeUpdatedSave) -- nothing was written at all, so there's no
-    // "New save file created" line to show, just the explanation.
+    // writeUpdatedSave, or a failed verification) -- the original was
+    // NOT overwritten, so there's no "save updated" line to show, just
+    // the explanation (which already includes the backup path).
     resultDiv.innerHTML = `<div class="warning-severe">${result.verificationError || 'Apply could not proceed.'}</div>`;
     return;
   }
@@ -896,8 +894,8 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
   const applySummary = formatApplySummary(result);
 
   resultDiv.innerHTML = `
-    <div>New save file created: <strong>${result.outputPath}</strong></div>
-    <div class="hint">Load this save in-game to use the recomputed pipelines. Your original save was never touched.</div>
+    <div>Save updated: <strong>${result.outputPath}</strong></div>
+    <div class="hint">Backup of your save from just before this Apply: <strong>${result.backupPath}</strong></div>
     ${result.verified === true ? '<div class="verified-ok">\u2713 Write verified -- re-read the new file and confirmed every change landed correctly.</div>' : ''}
     ${result.verified === false ? `<div class="warning-severe">This save may not have written correctly -- ${result.verificationError || 'a post-write check failed.'} Don't load this save yet; re-run Apply, and if this keeps happening, something's genuinely wrong and worth reporting.</div>` : ''}
     ${applySummary ? `<div class="hint">${applySummary}</div>` : ''}

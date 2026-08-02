@@ -1,6 +1,6 @@
 {
   "name": "cfb27-pipeline-tool",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Dynamic recruiting pipeline recalculation tool for CFB27 dynasty saves",
   "main": "main.js",
   "scripts": {

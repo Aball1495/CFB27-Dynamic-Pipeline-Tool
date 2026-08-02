@@ -361,34 +361,119 @@ async function shrinkTeamPipelineSlots(franchise, teamsByIndex, pipelineInfluenc
   return newRows;
 }
 
+function resolveTable(franchise, tableId) {
+  return franchise.tables.find((t) => t.header && t.header.tableId === tableId);
+}
+
+// Player.TeamIndex is NOT reliable as "who is currently on this team" --
+// confirmed across multiple real test saves (a companion tool,
+// Preseason Transfer Wave, hit the identical bug: a handful of real
+// teams can carry TeamIndex=0 for their entire roster while a normal
+// roster sits in their Roster array, and the human-controlled team
+// specifically can accumulate stale phantom TeamIndex references).
+// This resolves player->team membership from each team's real Roster
+// reference array instead -- the same field the game itself renders
+// rosters from. Players not found in any real team's Roster array are
+// excluded entirely rather than guessed at via their own TeamIndex.
+async function buildRosterTeamByPlayerIndex(franchise) {
+  const teamTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+  await teamTable.readRecords();
+  const playerTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.player);
+  await playerTable.readRecords();
+  const playerTableId = playerTable.header.tableId;
+
+  const map = new Map();
+  for (const team of teamTable.records) {
+    let name;
+    try { name = team.DisplayName; } catch { continue; }
+    if (!name) continue; // skip placeholder rows, same guard readTeamPipelineMapping uses
+    if (!team.fields || !('Roster' in team.fields) || !team.fields.Roster.isReference) continue;
+    const ref = team.fields.Roster.referenceData;
+    const rosterTable = resolveTable(franchise, ref.tableId);
+    if (!rosterTable) continue;
+    if (!rosterTable.recordsRead) await rosterTable.readRecords();
+    const rosterRecord = rosterTable.records[ref.rowNumber];
+    if (!rosterRecord) continue;
+    for (const slotName of Object.keys(rosterRecord.fields)) {
+      const field = rosterRecord.fields[slotName];
+      if (!field || !field.isReference) continue;
+      const slotRef = field.referenceData;
+      if (!slotRef || slotRef.tableId !== playerTableId) continue;
+      const record = playerTable.records[slotRef.rowNumber];
+      if (!record || record.isEmpty) continue;
+      // Team.TeamIndex (the field), NOT team.index (row position) --
+      // every other function in this file (readTeamPipelineMapping,
+      // readCoaches, the integrity pass, capacity reclaim) keys teams by
+      // the field, and on a real save the two can genuinely differ (a
+      // team's own TeamIndex field and its row position aren't
+      // guaranteed to match -- confirmed on a real save after
+      // conference realignment). Keying by row position here instead
+      // caused this player-team map to silently disagree with every
+      // other part of this file about which numeric ID means which team.
+      map.set(slotRef.rowNumber, team.TeamIndex);
+    }
+  }
+  return map;
+}
+
 /** Player table -> { [teamIndex]: [{ pipeline, state, star }, ...] } */
 async function readPlayers(franchise) {
   const table = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.player);
   await table.readRecords();
+  const rosterTeamByPlayerIndex = await buildRosterTeamByPlayerIndex(franchise);
   const byTeam = {};
   for (const r of table.records) {
-    const ti = r.TeamIndex;
+    const ti = rosterTeamByPlayerIndex.get(r.index);
+    if (ti === undefined) continue; // not found in any real team's Roster array -- don't guess via TeamIndex
     if (!byTeam[ti]) byTeam[ti] = [];
     byTeam[ti].push({ pipeline: r.HomePipeline, state: r.PLYR_HOME_STATE, star: r.ProspectStarRating });
   }
   return byTeam;
 }
 
-/** Coach table -> { [teamIndex]: { HeadCoach: {...}, OffensiveCoordinator: {...}, DefensiveCoordinator: {...} } } */
+/**
+ * Coach.TeamIndex is NOT reliable -- confirmed on a real save: after a
+ * human coach changed jobs, ALL THREE of that team's real staff
+ * (HeadCoach, OffensiveCoordinator, DefensiveCoordinator) still carried
+ * the OLD team's TeamIndex on their own Coach records, even though the
+ * new team's own data correctly showed them as current staff. This
+ * resolves staff the authoritative way instead: each Team record has its
+ * own direct HeadCoach / OffensiveCoordinator / DefensiveCoordinator
+ * reference field pointing straight into the Coach table (confirmed via
+ * a real save's field list -- same pattern as Team.Roster for players,
+ * just a single reference each instead of an array). Coach.TeamIndex is
+ * never read here at all.
+ *
+ * Team table -> { [teamIndex]: { HeadCoach: {...}, OffensiveCoordinator: {...}, DefensiveCoordinator: {...} } }
+ */
 async function readCoaches(franchise) {
-  const table = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.coach);
-  await table.readRecords();
+  const teamTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.team);
+  await teamTable.readRecords();
+  const coachTable = franchise.getTableByUniqueId(TABLE_UNIQUE_IDS.coach);
+  await coachTable.readRecords();
+  const coachTableId = coachTable.header.tableId;
+
+  const STAFF_FIELDS = ['HeadCoach', 'OffensiveCoordinator', 'DefensiveCoordinator'];
+
   const byTeam = {};
-  const relevant = new Set(['HeadCoach', 'OffensiveCoordinator', 'DefensiveCoordinator']);
-  for (const r of table.records) {
-    if (!relevant.has(r.Position)) continue;
-    const ti = r.TeamIndex;
-    if (!byTeam[ti]) byTeam[ti] = {};
-    byTeam[ti][r.Position] = {
-      pipeline: r.PrimaryPipeline,
-      seasons: r.SeasonsWithTeam || 0,
-      name: `${r.FirstName || ''} ${r.LastName || ''}`.trim(),
-    };
+  for (const teamRecord of teamTable.records) {
+    if (!teamRecord.DisplayName || teamRecord.TeamIndex === 255) continue; // skip placeholder rows, same guard readTeamPipelineMapping uses
+
+    const staff = {};
+    for (const posLabel of STAFF_FIELDS) {
+      const field = teamRecord.getFieldByKey(posLabel);
+      if (!field) continue;
+      const ref = field.referenceData;
+      if (!ref || ref.tableId !== coachTableId) continue;
+      const coachRecord = coachTable.records[ref.rowNumber];
+      if (!coachRecord) continue;
+      staff[posLabel] = {
+        pipeline: coachRecord.PrimaryPipeline,
+        seasons: coachRecord.SeasonsWithTeam || 0,
+        name: `${coachRecord.FirstName || ''} ${coachRecord.LastName || ''}`.trim(),
+      };
+    }
+    if (Object.keys(staff).length > 0) byTeam[teamRecord.TeamIndex] = staff;
   }
   return byTeam;
 }
@@ -405,11 +490,14 @@ function readPipelineRow(pipelineInfluenceTable, rowNumber) {
 }
 
 /**
- * Writes recomputed values back. ALWAYS works on a copy -- the original
- * save at savePath is opened read-only in spirit; we never call .save() on
- * a franchise instance tied to the original path. A fresh copy is made
- * first, a fresh Franchise instance opens that copy, the edits happen
- * there, and that copy is what gets saved.
+ * Writes recomputed values back. Backs up the original save first (to a
+ * "Pipeline Backup" folder next to it, timestamped -- previous backups
+ * are never overwritten), then works on a temp copy and only replaces
+ * the real save once every step below has actually succeeded --
+ * matches the same safe-write pattern Preseason Transfer Wave uses (see
+ * that project's lib/redistribution.js), so a crash or interruption
+ * mid-write can never corrupt the real save, even in a cloud-synced
+ * folder like OneDrive.
  *
  * Takes per-team results directly (rather than a pre-flattened row map)
  * because expansion (writing brand-new pipeline slots for a team with
@@ -420,7 +508,8 @@ function readPipelineRow(pipelineInfluenceTable, rowNumber) {
  * team in the same call can see freed rows as available. A pre-built row
  * map from an earlier, separate read of the file can't reflect either.
  *
- * @param {string} savePath - original save file (never modified)
+ * @param {string} savePath - the real save file. Backed up first, then
+ *   overwritten in place once the write below succeeds.
  * @param {Object} teamUpdates - { [teamIndex]: { after: [[tier,region,value],...] } }
  *   `after.length` may be larger OR SMALLER than that team's current real
  *   slot count:
@@ -436,46 +525,60 @@ function readPipelineRow(pipelineInfluenceTable, rowNumber) {
  *       spot-checked in-game; shrinking has been in-game verified for the
  *       ceiling-normalization case (see shrink_test.cjs) but not yet
  *       exercised through this exact function end-to-end in a live Apply.
- * @param {string} outputDir - where to place the new save copy
- * @returns {{ outputPath: string, verified: boolean, verificationError: string|null }}
+ * @param {string|null} backupDir - where to place the backup copy.
+ *   Optional -- omit it (or pass null/undefined) to use the default
+ *   "Pipeline Backup" folder next to savePath.
+ * @returns {{ outputPath: string|null, backupPath: string, verified: boolean, verificationError: string|null }}
  */
 /**
- * Builds a short, dash-free output filename: the original save's name,
+ * Builds a short, dash-free backup filename: the original save's name,
  * immediately followed by a 5-character month+day suffix (e.g.
- * "DYNASTY-FP" -> "DYNASTY-FPJUL23"). Replaces the old
- * "<name>-PIPELINES-<full ISO timestamp>" format, which produced very
- * long filenames packed with dashes -- reported to cause the game to
- * hang on its load screen for some users.
+ * "DYNASTY-FP" -> "DYNASTY-FPJUL23"). Same reasoning as before this
+ * moved to backup+overwrite -- a full ISO-timestamp-with-dashes name was
+ * reported to cause the game to hang on its load screen for some users
+ * when a file named that way ever ended up somewhere the game could see
+ * it. The real save's own filename never changes at all now (it's
+ * overwritten in place, not renamed), so that risk no longer applies to
+ * it directly -- kept here anyway for the backup copy, both to preserve
+ * a working, already-proven naming scheme and because a backup folder
+ * being simple and collision-free is still worth having on its own merits.
  *
  * Same-day re-Applies of the same base file (e.g. repeated testing) are
  * handled by appending a single extra letter (B, C, D...) rather than
  * reintroducing a long timestamp -- keeps collisions impossible while
  * staying just as short and dash-free for every case after the first.
  */
-function buildShortOutputPath(outputDir, base, date) {
+function buildShortBackupPath(backupDir, base, date) {
   const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const suffix = `${MONTHS[date.getMonth()]}${String(date.getDate()).padStart(2, '0')}`;
 
-  let candidate = path.join(outputDir, `${base}${suffix}`);
+  let candidate = path.join(backupDir, `${base}${suffix}`);
   if (!fs.existsSync(candidate)) return candidate;
 
   for (let i = 1; i < 26; i++) {
-    candidate = path.join(outputDir, `${base}${suffix}${String.fromCharCode(65 + i)}`); // B, C, D...
+    candidate = path.join(backupDir, `${base}${suffix}${String.fromCharCode(65 + i)}`); // B, C, D...
     if (!fs.existsSync(candidate)) return candidate;
   }
   // Extremely unlikely fallback -- more than 26 Applies of the exact
   // same base file on the exact same day.
-  return path.join(outputDir, `${base}${suffix}Z${Date.now()}`);
+  return path.join(backupDir, `${base}${suffix}Z${Date.now()}`);
 }
 
-async function writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclaim = null) {
-  fs.mkdirSync(outputDir, { recursive: true });
+async function writeUpdatedSave(savePath, teamUpdates, backupDir = null, capacityReclaim = null) {
+  const saveDir = path.dirname(savePath);
   const base = path.basename(savePath);
-  const outputPath = buildShortOutputPath(outputDir, base, new Date());
 
-  fs.copyFileSync(savePath, outputPath);
+  const resolvedBackupDir = backupDir || path.join(saveDir, 'Pipeline Backup');
+  fs.mkdirSync(resolvedBackupDir, { recursive: true });
+  const backupPath = buildShortBackupPath(resolvedBackupDir, base, new Date());
+  fs.copyFileSync(savePath, backupPath);
 
-  const franchise = await Franchise.create(outputPath);
+  // Work on a temp copy next to the real save; only renamed into place
+  // once every step below has actually succeeded.
+  const tempPath = path.join(saveDir, `.${base}.tmp-${Date.now()}`);
+  fs.copyFileSync(savePath, tempPath);
+
+  const franchise = await Franchise.create(tempPath);
   const { teamsByIndex, pipelineInfluenceTable } = await readTeamPipelineMapping(franchise);
   const pipelineTableIdForIntegrityPass = pipelineInfluenceTable.header.tableId;
 
@@ -637,9 +740,13 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclai
     // specific request doesn't fit.
     if (integrityFixesApplied.length > 0) {
       await franchise.save();
+      fs.renameSync(tempPath, savePath);
+    } else {
+      fs.unlinkSync(tempPath); // nothing to keep -- don't leave a stray temp file behind
     }
     return {
-      outputPath: integrityFixesApplied.length > 0 ? outputPath : null,
+      outputPath: integrityFixesApplied.length > 0 ? savePath : null,
+      backupPath,
       verified: false,
       verificationError:
         `Not enough unused pipeline rows to make this Apply work: need ${totalDemand} new slots total, ` +
@@ -833,24 +940,31 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclai
 
     await franchise.save();
   } catch (err) {
+    try { fs.unlinkSync(tempPath); } catch {} // original savePath is untouched either way -- just don't leave debris
     return {
       outputPath: null,
+      backupPath,
       verified: false,
-      verificationError: `Apply failed before finishing: ${err.message}. Nothing in this output file should be trusted -- please report this.`,
+      verificationError: `Apply failed before finishing: ${err.message}. Nothing was written to your real save -- a backup was still made beforehand, but the original is otherwise untouched.`,
       integrityFixesApplied,
       pipelineInitialInfluenceReset: [],
       capacityReclaimed,
     };
   }
 
-  // Post-write verification: re-open the fresh copy (a completely separate
-  // read from what was just written, not trusting in-memory state) and
-  // confirm every intended change actually landed. Cheap insurance for the
-  // one operation in this whole app that touches a copy of someone's save.
+  // Only now, after the temp copy was written successfully, replace the
+  // real save with it.
+  fs.renameSync(tempPath, savePath);
+
+  // Post-write verification: re-open the REAL save now that the temp copy
+  // has been renamed into place (a completely separate read from what
+  // was just written, not trusting in-memory state) and confirm every
+  // intended change actually landed. Cheap insurance for the one
+  // operation in this whole app that actually modifies someone's save.
   let verified = true;
   let verificationError = null;
   try {
-    const verifyFranchise = await Franchise.create(outputPath);
+    const verifyFranchise = await Franchise.create(savePath);
     const verifyTable = verifyFranchise.getTableByUniqueId(TABLE_UNIQUE_IDS.schoolPipelineInfluence);
     await verifyTable.readRecords();
 
@@ -879,7 +993,7 @@ async function writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclai
     verificationError = `Could not verify the write: ${err.message}`;
   }
 
-  return { outputPath, verified, verificationError, integrityFixesApplied, pipelineInitialInfluenceReset, capacityReclaimed };
+  return { outputPath: savePath, backupPath, verified, verificationError, integrityFixesApplied, pipelineInitialInfluenceReset, capacityReclaimed };
 }
 
 module.exports = {

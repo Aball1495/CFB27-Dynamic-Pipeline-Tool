@@ -61,10 +61,12 @@ automatically on first launch.
    region entered or dropped out of that team's top 10 entirely -- not
    just a score shifting, but the actual lineup of regions changing. No
    dot means the same regions stuck around, just with different scores.
-5. **Apply** -- writes a **brand new save file copy** with the recomputed
-   values. Your original save is **never opened in write mode** at any
-   point in this flow -- the app always works on a fresh copy. Load that
-   new copy in-game to use the recomputed pipelines.
+5. **Apply** -- backs up your original save first (to a `Pipeline Backup`
+   folder next to it), then overwrites the save itself with the recomputed
+   values. Nothing is written to your real save until the backup exists and
+   the new content has been written and verified on a separate working
+   copy first -- see [How the save-file access works](#how-the-save-file-access-works)
+   for the full commit order.
 
 ## History
 
@@ -150,19 +152,15 @@ Tucked under the "Advanced" disclosure in Settings:
 
 ## How the save-file access works
 
-Every table is accessed by its **numeric ID**, not by name -- this was a
-real, hard-won discovery. Name-based lookup (`getTableByName('Team')`)
-only found 9 of 143 team records due to how this file format lazily
-registers tables; `getTableById(6334)` finds all 143 correctly. The IDs
-used throughout `io/saveFile.js`:
-
-| Table | ID |
-|---|---|
-| Team | 6334 |
-| SchoolPipelineInfluence[] (list) | 5919 |
-| SchoolPipelineInfluence | 4306 |
-| Player | 4244 |
-| Coach | 4173 |
+Every core table is accessed by its **numeric unique ID**, not by name --
+this was a real, hard-won discovery. Name-based lookup
+(`getTableByName('Team')`) only found a handful of team records due to how
+this file format lazily registers tables; ID-based lookup finds all of
+them correctly. The actual IDs in current use live in `TABLE_UNIQUE_IDS`
+at the top of `io/saveFile.js` -- not duplicated here on purpose, since
+those values are tied to this specific game patch and would go stale in
+this doc the moment they ever change; the code itself is the source of
+truth.
 
 Reference-type fields (like `Team.SchoolPipelineInfluenceList`, pointing
 into the list table) are resolved via the field's built-in
@@ -224,7 +222,78 @@ pipelines outside of this tool.
 
 ## Changelog
 
+**v1.0.0**
+
+- **Fixed a real crash on Apply** (`TypeError: The "path" argument must be
+  of type string... Received undefined`) -- caused by a naming mismatch
+  between `preload.js` (still sending the old `outputDir` key) and
+  `main.js`'s handler (already expecting `backupDir`, from an earlier,
+  never-finished migration). The renderer and confirmation dialog had
+  already been updated to describe backup-then-overwrite behavior, but
+  `writeUpdatedSave()` itself had never actually been changed to do it --
+  it silently still wrote a brand-new file every time. Both are now fixed:
+  the naming is consistent end to end, and `writeUpdatedSave()` genuinely
+  backs up the original (to `Pipeline Backup`, timestamped, previous
+  backups never overwritten) and then overwrites it in place via the same
+  safe temp-file-then-rename pattern used elsewhere in this tool.
+- **`readCoaches()` no longer trusts `Coach.TeamIndex` at all.** Confirmed
+  on a real save: after a human coach changed jobs, all three of that
+  team's real staff (HeadCoach, OffensiveCoordinator, DefensiveCoordinator)
+  still carried the *old* team's `TeamIndex` on their own Coach records,
+  even though the new team's own data correctly showed them as current
+  staff. Staff is now resolved the authoritative way instead -- each Team
+  record has its own direct `HeadCoach` / `OffensiveCoordinator` /
+  `DefensiveCoordinator` reference field pointing straight into the Coach
+  table (same pattern as `Team.Roster` for players), and that's what gets
+  read now.
+- **`readPlayers()` now resolves team membership via each team's real
+  `Roster` array**, not `Player.TeamIndex` -- the same class of staleness
+  bug as the coach one, confirmed on a real save (a handful of teams can
+  carry `TeamIndex` pointing at rosters that read as nearly empty while a
+  normal roster sits in their `Roster` array). Players not found in any
+  real team's `Roster` array are excluded entirely rather than guessed at.
+- **Fixed a real keying bug this same fix introduced and then caught**:
+  the first version of the `readPlayers()` fix keyed its results by a
+  team's row position, while every other function in this file (including
+  the new `readCoaches()`) has always keyed by `Team.TeamIndex` (the
+  field). Confirmed on a real save that these two numbers can genuinely
+  differ for the same team -- row position and the team's own `TeamIndex`
+  field aren't guaranteed to match. `readPlayers()` now keys the same way
+  as everything else, so players and coaches always agree on which number
+  means which team.
+- **Stress-tested against mid-dynasty conference realignment and two
+  separate coaching changes** on a real save. Team identity (row position,
+  each team's own `TeamIndex` field) held up cleanly through all of it;
+  coach/player attribution stayed correct even while `Coach.TeamIndex`
+  itself continued going stale after each coaching change, exactly as
+  expected -- confirming the fix resolves around that staleness rather
+  than depending on it not happening.
+
+**v0.9.0**
+
+- Added a **startup integrity pass**, run automatically at the start of
+  every Apply -- fixes cross-team row collisions and within-team slot
+  "holes" (an invalid slot with real data sitting after it). Each fix uses
+  a genuinely unique, fresh orphan row -- no shared placeholder row, no
+  changes to the underlying shrink/expand logic.
+- Added a **PipelineInitialInfluence reset**, run automatically at the end
+  of every Apply -- zeroes any team's drifted `Team.PipelineInitialInfluence`
+  value. Confirmed via multi-season testing that this prevents the crash
+  that originally prompted the v0.8.0 investigation.
+- Added **automatic capacity reclamation**, run at the end of every Apply --
+  any non-Academy team currently over the configured pipeline cap is
+  trimmed back down to it, keeping its highest-value pipelines and freeing
+  the rest. Uses your actual `maxPipelines` / `academyTeams` settings, not
+  hardcoded team names.
+- Removed the investigation-era `PLACEHOLDER_ROW` concept entirely --
+  shrink/expand now write plain null references exactly as the original
+  tool always did.
+- Repo cleanup: removed dozens of one-off investigation scripts used to
+  diagnose the v0.8.0 crash; the ones with lasting troubleshooting value
+  moved into a `diagnostics/` folder.
+
 **v0.8.0**
+
 - Investigated a reported save crash at the offseason after season 2, on
   a save also touched by a separate community recruiting tool. Built a
   new read-only save-integrity diagnostic and confirmed this tool's own
@@ -249,6 +318,7 @@ pipelines outside of this tool.
   short, clean naming.
 
 **v0.7.0**
+
 - Investigated a community report that removed/shrunk pipelines can
   reappear (or have their tier/value silently overwritten) after an
   in-game season advance, independent of anything this tool writes.
@@ -298,6 +368,7 @@ pipelines outside of this tool.
   for confirmation first, since neither can be undone.
 
 **v0.6.0**
+
 - Fixed a real bug where any team with more than 30 real pipeline slots
   would have every slot beyond 30 silently ignored on every future
   Apply -- never read, never recalculated, just permanently frozen with
@@ -347,6 +418,7 @@ pipelines outside of this tool.
   there's nothing to Apply for them.
 
 **v0.5.0**
+
 - After selecting a save, a small info bar now shows the current season,
   which team you're actually playing as (with its logo), and the
   dynasty's code -- confirmed against a real save (the same
@@ -365,6 +437,7 @@ pipelines outside of this tool.
   operation in this whole app that touches a copy of your save.
 
 **v0.4.0**
+
 - Added a Before/After toggle to the regular map view, alongside the
   existing "Map colors" toggle -- see a team's pipeline footprint as it
   was before this run, or after, without leaving the map.
@@ -400,6 +473,7 @@ pipelines outside of this tool.
   box, and checkbox saves automatically.
 
 **v0.3.0-beta**
+
 - Added a "Changed only" checkbox next to the team search bar in Preview,
   to quickly narrow the list down to just the teams whose top-10 regions
   actually changed (the same thing the &bull; dot next to a team's name
@@ -425,6 +499,7 @@ pipelines outside of this tool.
   table before shipping.
 
 **v0.2.0-beta**
+
 - Added a **History** tab: pick any team and scrub through every season
   you've applied so far on the same map view you already know, with
   smooth color transitions between seasons.
@@ -443,6 +518,7 @@ pipelines outside of this tool.
   how much padding the original image had.
 
 **v0.1.1-beta**
+
 - Fixed a bug where states with a space in their name (New Mexico, North
   Carolina, South Carolina, West Virginia, New York, New Jersey, New
   Hampshire, North Dakota, South Dakota, Rhode Island) weren't showing
@@ -456,4 +532,5 @@ pipelines outside of this tool.
   (not just scores shifting) with a small dot next to the name.
 
 **v0.1.0-beta**
+
 - Initial release.

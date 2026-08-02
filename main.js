@@ -80,9 +80,13 @@ ipcMain.handle('select-save-file', async () => {
   return savePath;
 });
 
+// Backups now default to a "Pipeline Backup" folder next to the save file
+// itself (auto-created on first Apply) -- this dialog is no longer part of
+// the normal Apply flow, but kept available in case a future settings
+// option lets someone override the backup location.
 ipcMain.handle('select-output-dir', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Select output folder for the new save copy',
+    title: 'Select a custom backup folder',
     properties: ['openDirectory', 'createDirectory'],
   });
   return result.canceled ? null : result.filePaths[0];
@@ -287,11 +291,14 @@ ipcMain.handle('run-engine', async (event, { savePath, settings }) => {
 });
 
 /**
- * Commits previously-previewed changes. Always writes to a brand new save
- * file copy -- see writeUpdatedSave(). Your original save is never opened
- * in write mode at any point in this flow.
+ * Commits previously-previewed changes. Overwrites the original save file
+ * -- but only after backing it up to "Pipeline Backup" (next to the save,
+ * auto-created on first use) and only after the edit succeeds and
+ * verifies on a separate working copy first. See writeUpdatedSave() for
+ * the full commit order. `backupDir` is optional -- omit it (or pass
+ * null/undefined) to use the default "Pipeline Backup" folder location.
  */
-ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNamesToApply, outputDir, settings }) => {
+ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNamesToApply, backupDir, settings }) => {
   // writeUpdatedSave expects { [teamIndex]: { after: [[tier,region,value],...] } }
   // -- NOT a flat row-indexed map. It needs the full `after` array per team
   // (not pre-flattened to specific row numbers) because expansion/shrinking
@@ -311,7 +318,7 @@ ipcMain.handle('commit-changes', async (event, { savePath, engineResults, teamNa
     maxPipelines: settings ? settings.maxPipelines : null,
     academyTeamNames: (settings && settings.academyMode) ? (settings.academyTeams || []) : [],
   };
-  const writeResult = await writeUpdatedSave(savePath, teamUpdates, outputDir, capacityReclaim);
+  const writeResult = await writeUpdatedSave(savePath, teamUpdates, backupDir, capacityReclaim);
 
   // Read-only pass, separate from the write above, just to key this
   // season's history snapshot. Never touches write mode on the original.
