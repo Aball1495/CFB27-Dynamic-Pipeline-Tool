@@ -182,6 +182,13 @@
       <div id="apply-result" class="apply-result hidden"></div>
     </section>
 
+    <!-- National Map -->
+    <section class="panel" id="panel-national-map">
+      <h2>National Map</h2>
+      <p class="hint">Regional dominance and conference pipeline strength, across every team at once.</p>
+      <button id="btn-open-national-map" class="btn btn-primary">View national map&hellip;</button>
+    </section>
+
     <!-- History -->
     <section class="panel" id="panel-history">
       <h2>History</h2>
@@ -189,6 +196,34 @@
       <button id="btn-open-history" class="btn btn-primary">View history&hellip;</button>
     </section>
   </main>
+
+  <!-- National Map modal -->
+  <div id="national-map-modal" class="map-modal hidden">
+    <div class="map-modal-content national-map-modal-content">
+      <button id="btn-close-national-map" class="btn map-modal-close">&times; Close</button>
+      <p class="hint">
+        Updates from whatever the most recent engine run computed. Pipelines aren't exclusive -- lots of teams can
+        legitimately have the same region in their own top 10 -- so this colors each region by whichever team
+        currently has the <strong>highest</strong> value there (the "Regional King"), not who "owns" it. Regions
+        with a dashed white border are closely contested between the top two claimants. Click any region for the
+        full ranked breakdown.
+      </p>
+      <div id="national-map-container" class="map-svg-container">
+        <div class="map-loading">Run the engine to see the national map.</div>
+      </div>
+      <h3 class="conference-strengths-title">Strongest pipeline per conference</h3>
+      <p class="hint">Summed across each conference's own member teams -- which region that conference collectively recruits best.</p>
+      <div id="conference-strengths-list"></div>
+    </div>
+  </div>
+
+  <!-- Region breakdown modal -->
+  <div id="region-breakdown-modal" class="map-modal hidden">
+    <div class="map-modal-content">
+      <button id="btn-close-region-breakdown" class="btn map-modal-close">&times; Close</button>
+      <div id="region-breakdown-body"></div>
+    </div>
+  </div>
 
   <!-- Map modal -->
   <div id="map-modal" class="map-modal hidden">

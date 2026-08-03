@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   getPresets: () => ipcRenderer.invoke('get-presets'),
   getTeamColors: () => ipcRenderer.invoke('get-team-colors'),
   getStateToPipeline: () => ipcRenderer.invoke('get-state-to-pipeline'),
+  getConferenceMembers: (savePath) => ipcRenderer.invoke('get-conference-members', { savePath }),
   getLogosDir: () => ipcRenderer.invoke('get-logos-dir'),
   getHistory: () => ipcRenderer.invoke('get-history'),
   deleteHistorySeason: (dynastyCode, season) => ipcRenderer.invoke('delete-history-season', { dynastyCode, season }),

@@ -337,4 +337,262 @@ function updateTeamMapColors(container, baseColor, afterEntries, previousEntries
   if (tierListEl) tierListEl.innerHTML = buildTierListHTML(afterEntries, tierColor, changeDirections, showScores);
 }
 
-window.PipelineMap = { renderTeamMap, updateTeamMapColors, sharpenedRamp, computeTierColor, getLogosDirUrl };
+// ===== National Map (all teams at once) =====
+//
+// Pipelines aren't exclusive -- dozens of teams can legitimately have the
+// same region in their own top 10 simultaneously. There's no single
+// "owner" of a region in the data, so this deliberately does NOT try to
+// render one. Instead: color each region by whichever team currently has
+// the HIGHEST value there ("Regional King" -- who's the biggest fish in
+// this pond, not who owns the pond), with a distinct stroke on regions
+// where the top two are close (genuinely contested), and the full ranked
+// list of every claimant available on click/hover rather than crammed
+// into the map fill itself.
+
+// Starting heuristic, not deeply tuned -- top two claimants count as
+// "contested" if they're within 15% of the leader's value.
+const CONTESTED_RELATIVE_GAP = 0.15;
+
+/**
+ * Builds the full per-region breakdown from engineResults (as already
+ * returned by run-engine for every team, not just ones selected to
+ * Apply). No extra save read needed -- this is pure aggregation over
+ * data already sitting in memory.
+ *
+ * @param {Object} engineResults - { [teamName]: { teamIndex, after: [[tier,region,value],...], ... } }
+ * @returns {Object} { [regionName]: { claimants: [{teamName, teamIndex, tierNum, value}, ...] (desc by value), king, contested: boolean } }
+ */
+function buildNationalPipelineData(engineResults) {
+  const byRegion = {};
+  for (const [teamName, result] of Object.entries(engineResults)) {
+    if (!result || !Array.isArray(result.after)) continue;
+    for (const [tierName, region, value] of result.after) {
+      if (!byRegion[region]) byRegion[region] = [];
+      byRegion[region].push({
+        teamName,
+        teamIndex: result.teamIndex,
+        tierNum: TIER_NAMES.indexOf(tierName), // 1-5 -- same numeric scale the game itself uses
+        value,
+      });
+    }
+  }
+
+  const regions = {};
+  for (const [region, claimants] of Object.entries(byRegion)) {
+    claimants.sort((a, b) => b.value - a.value);
+    const king = claimants[0];
+    const runnerUp = claimants[1];
+    const contested = !!(runnerUp && king && king.value > 0 && (king.value - runnerUp.value) <= king.value * CONTESTED_RELATIVE_GAP);
+    regions[region] = { claimants, king, contested };
+  }
+  return regions;
+}
+
+/**
+ * Per-conference strongest collective pipeline -- sums each member team's
+ * value in a region (0 if that team doesn't have it at all), finds the
+ * region with the highest combined total for that conference.
+ *
+ * @param {Array<{name: string, memberTeamIndexes: number[]}>} conferences - from getConferenceMembers()
+ * @param {Object} engineResults - same shape as buildNationalPipelineData
+ */
+function buildConferenceStrengths(conferences, engineResults) {
+  const teamNameByIndex = {};
+  for (const [teamName, result] of Object.entries(engineResults)) {
+    if (result && result.teamIndex !== undefined) teamNameByIndex[result.teamIndex] = teamName;
+  }
+
+  return conferences.map((conf) => {
+    const regionTotals = {};
+    let membersWithData = 0;
+    for (const teamIndex of conf.memberTeamIndexes) {
+      const teamName = teamNameByIndex[teamIndex];
+      const result = teamName ? engineResults[teamName] : null;
+      if (!result || !Array.isArray(result.after)) continue;
+      membersWithData++;
+      for (const [, region, value] of result.after) {
+        regionTotals[region] = (regionTotals[region] || 0) + value;
+      }
+    }
+    let strongestRegion = null;
+    let bestTotal = -1;
+    for (const [region, total] of Object.entries(regionTotals)) {
+      if (total > bestTotal) { bestTotal = total; strongestRegion = region; }
+    }
+    return {
+      conference: conf.name,
+      memberCount: conf.memberTeamIndexes.length,
+      membersWithData,
+      strongestRegion,
+      total: strongestRegion ? bestTotal : 0,
+    };
+  }).sort((a, b) => b.total - a.total);
+}
+
+function primaryColorFor(teamName, teamColors) {
+  const colors = teamColors && teamColors[teamName];
+  return (colors && colors[0]) || null;
+}
+
+// Same 5 colors as the game's own pipeline pin icons (bronze -> gray ->
+// gold -> teal -> purple), index 0 unused since tier 0 (Unrecognized)
+// never appears in real "after" data.
+const TIER_PIN_COLORS = [null, '#8e5435', '#9c9c9c', '#cba14b', '#62aec5', '#bd5fbb'];
+
+/**
+ * A small inline SVG pin badge matching the game's own pipeline-tier
+ * icon shape/coloring (teardrop pin, tier number centered inside) --
+ * not the literal game asset (not available to us), but the same shape
+ * and exact colors so it reads the same way at a glance.
+ */
+function buildTierPinSVG(tierNum, size = 22) {
+  const color = TIER_PIN_COLORS[tierNum] || '#888';
+  return `
+    <svg class="tier-pin" width="${size}" height="${Math.round(size * 1.33)}" viewBox="0 0 24 32" aria-label="Tier ${tierNum} of 5">
+      <path d="M12 0C5.4 0 0 5.4 0 12c0 8 12 20 12 20s12-12 12-20C24 5.4 18.6 0 12 0z" fill="${color}"/>
+      <text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="sans-serif">${tierNum}</text>
+    </svg>`;
+}
+
+/**
+ * Builds the click-detail breakdown for one region -- every claimant,
+ * ranked, tier shown as the game's own pin-badge icon (colored 1-5)
+ * instead of a name or plain "N/5" text.
+ */
+function buildRegionBreakdownHTML(regionName, nationalData, teamColors) {
+  const entry = nationalData[regionName];
+  if (!entry || !entry.claimants.length) {
+    return `<div class="region-breakdown-empty">No team currently has ${regionName} in their top pipelines.</div>`;
+  }
+  const rows = entry.claimants.map((c, i) => {
+    const color = primaryColorFor(c.teamName, teamColors) || '#888';
+    const isKing = i === 0;
+    return `
+      <div class="region-claimant-row${isKing ? ' region-claimant-king' : ''}">
+        <span class="region-claimant-rank">${i + 1}</span>
+        <span class="region-claimant-swatch" style="background:${color}"></span>
+        <span class="region-claimant-team">${c.teamName}</span>
+        ${buildTierPinSVG(c.tierNum)}
+        <span class="region-claimant-value">${c.value}</span>
+      </div>`;
+  }).join('');
+  const contestedNote = entry.contested
+    ? `<div class="region-contested-note">Closely contested -- top two are within ${Math.round(CONTESTED_RELATIVE_GAP * 100)}% of each other.</div>`
+    : '';
+  return `
+    <div class="region-breakdown-header">${regionName}</div>
+    ${contestedNote}
+    <div class="region-claimant-list">${rows}</div>`;
+}
+
+/**
+ * Renders the national map -- same topology/projection/split-state
+ * merging as renderTeamMap, but colored by Regional King instead of one
+ * team's own tiers, with a click handler per shape.
+ *
+ * @param {HTMLElement} container
+ * @param {Object} engineResults
+ * @param {Object} teamColors - { [teamName]: { primary, ... } }
+ * @param {(regionName: string) => void} onRegionClick
+ */
+async function renderNationalMap(container, engineResults, teamColors, onRegionClick) {
+  container.innerHTML = '<div class="map-loading">Loading national map\u2026</div>';
+
+  const stateToPipeline = await getStateToPipeline();
+  const us = await getCountyTopology();
+  const nationalData = buildNationalPipelineData(engineResults);
+
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const noneColor = isDark ? '#383835' : '#e1e0d9';
+
+  function fillFor(regionName) {
+    const entry = nationalData[regionName];
+    if (!entry || !entry.king) return noneColor;
+    return primaryColorFor(entry.king.teamName, teamColors) || noneColor;
+  }
+  function isContested(regionName) {
+    const entry = nationalData[regionName];
+    return !!(entry && entry.contested);
+  }
+
+  container.innerHTML = '<div class="map-svg-container"></div>';
+  const svgContainer = container.querySelector('.map-svg-container');
+  const svg = d3.select(svgContainer).append('svg').attr('viewBox', '0 0 975 610').attr('width', '100%');
+
+  const projection = d3.geoAlbersUsa().scale(1300).translate([487.5, 305]);
+  const path = d3.geoPath(projection);
+
+  const counties = topojson.feature(us, us.objects.counties).features;
+  const states = topojson.feature(us, us.objects.states).features;
+
+  const relevant = counties.filter((d) => SPLIT_STATE_FIPS.has(d.id.slice(0, 2)));
+  relevant.forEach((d) => {
+    const c = d3.geoCentroid(d);
+    d.properties.subregion = classifySplit(d.id.slice(0, 2), c[0], c[1]);
+  });
+  const grouped = d3.groups(relevant, (d) => d.properties.subregion);
+  const mergedShapes = grouped.map(([label, feats]) => ({
+    label,
+    geo: topojson.merge(us, feats.map((f) => us.objects.counties.geometries[counties.indexOf(f)])),
+  }));
+
+  function attachClick(selection, regionNameFn) {
+    selection.style('cursor', 'pointer').on('click', function (event, d) {
+      const regionName = regionNameFn(d);
+      if (regionName && onRegionClick) onRegionClick(regionName);
+    });
+  }
+
+  const statePaths = svg.selectAll('.state').data(states.filter((d) => !SPLIT_STATE_FIPS.has(d.id.slice(0, 2)))).join('path')
+    .attr('d', path)
+    .attr('data-region', (d) => {
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      return stateToPipeline[stateKey] || '';
+    })
+    .attr('fill', (d) => {
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      const region = stateToPipeline[stateKey];
+      return region ? fillFor(region) : noneColor;
+    })
+    .attr('stroke', (d) => {
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      const region = stateToPipeline[stateKey];
+      const contested = region ? isContested(region) : false;
+      const fillC = region ? fillFor(region) : noneColor;
+      return contested ? '#ffffff' : borderStrokeFor(fillC, isDark);
+    })
+    .attr('stroke-width', (d) => {
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      const region = stateToPipeline[stateKey];
+      return region && isContested(region) ? 2.5 : 1.1;
+    })
+    .attr('stroke-dasharray', (d) => {
+      const stateKey = d.properties.name.replace(/[\s']/g, '');
+      const region = stateToPipeline[stateKey];
+      return region && isContested(region) ? '4,2' : null;
+    });
+  attachClick(statePaths, (d) => {
+    const stateKey = d.properties.name.replace(/[\s']/g, '');
+    return stateToPipeline[stateKey] || null;
+  });
+
+  mergedShapes.forEach((m) => {
+    const fillC = fillFor(m.label);
+    const contested = isContested(m.label);
+    const shape = svg.append('path')
+      .attr('d', path({ type: 'MultiPolygon', coordinates: m.geo.coordinates || [m.geo] }))
+      .attr('data-region', m.label)
+      .attr('fill', fillC)
+      .attr('stroke', contested ? '#ffffff' : borderStrokeFor(fillC, isDark))
+      .attr('stroke-width', contested ? 2.5 : 1.1)
+      .attr('stroke-dasharray', contested ? '4,2' : null);
+    attachClick(shape, () => m.label);
+  });
+
+  return nationalData;
+}
+
+window.PipelineMap = {
+  renderTeamMap, updateTeamMapColors, sharpenedRamp, computeTierColor, getLogosDirUrl,
+  renderNationalMap, buildNationalPipelineData, buildConferenceStrengths, buildRegionBreakdownHTML,
+};

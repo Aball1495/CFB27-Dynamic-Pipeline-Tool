@@ -92,6 +92,34 @@ History only starts accumulating from whenever you begin using the tool
 -- there's no way to retroactively reconstruct seasons from before you
 started applying changes.
 
+## National Map
+
+The **View national map...** button opens a live view of pipeline
+dominance across every team at once, using whatever the most recent
+engine run computed.
+
+Pipelines aren't exclusive -- dozens of teams can legitimately have the
+same region in their own top 10 simultaneously, so there's no single
+"owner" to render on a map the way a real recruiting-territory map might.
+Instead, each region is colored by whichever team currently has the
+**highest** value there (the "Regional King") -- who's the biggest fish
+in that pond, not who owns the pond. Regions where the top two claimants
+are closely matched get a dashed white border, so genuinely contested
+territory is visible at a glance.
+
+Click any region for the full ranked breakdown: every team that has it in
+their own top 10, sorted by value, each with their own team color and a
+colored pin badge for their tier -- matching the game's own 1-5
+pipeline-tier icon colors (bronze/gray/gold/teal/purple) instead of a
+tier name or plain "N/5" text.
+
+Below the map, **strongest pipeline per conference** sums each
+conference's own real member teams' values per region and shows which
+single region that conference collectively recruits best. Conference
+membership is read live and exactly from the save's own data -- not a
+hardcoded list -- so it stays correct for any realignment without needing
+to be told about it.
+
 ## Presets, weights, and what each one means
 
 The 4 sliders (Roster composition / Star-weighted quality / Coach
@@ -221,6 +249,28 @@ a great unofficial resource if you want to look up any team's or region's
 pipelines outside of this tool.
 
 ## Changelog
+
+**v1.1.0**
+
+- **New National Map** -- a live view of pipeline dominance across every team at once, moved into a "View national
+  map..." button/modal (same pattern as History) rather than a permanent panel, so it doesn't take up space when
+  you're not using it.
+  - Pipelines aren't exclusive -- dozens of teams can legitimately have the same region in their own top 10
+    simultaneously, so there's no single "owner" to render on a map. Instead, each region is colored by whichever
+    team currently has the *highest* value there (the "Regional King") -- who's the biggest fish in that pond, not
+    who owns the pond.
+  - Regions where the top two claimants are closely matched get a dashed white border, so genuinely contested
+    territory is visible at a glance without needing to click in.
+  - Click any region for the full ranked breakdown -- every team that has it in their top 10, sorted, each shown
+    with their own team color and a colored pin badge for their tier (matching the game's own 1-5 pipeline-tier
+    icon colors: bronze/gray/gold/teal/purple) instead of a tier name or plain "N/5" text.
+  - **New: strongest pipeline per conference** -- summed across each conference's own real member teams, which
+    single region that conference collectively recruits best.
+  - Conference membership is read live and exactly from the save's own `Conference` table (`TeamSlots` field),
+    not a hardcoded map -- ported from a sibling tool's already-validated logic (confirmed there against real
+    in-game standings on a heavily custom realignment), with one addition: converts the result from row position to
+    `Team.TeamIndex` right at the boundary, since every other function in this codebase keys teams that way, and
+    those two numbers are confirmed to genuinely differ for the same team on a real save.
 
 **v1.0.0**
 

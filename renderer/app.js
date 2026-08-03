@@ -69,6 +69,7 @@ document.getElementById('btn-select-save').addEventListener('click', async () =>
   }
 
   savePath = picked;
+  conferenceMembersCache = null; // per-save data -- invalidate on every new save selection
   document.getElementById('save-path-display').textContent = `Selected: ${savePath}`;
   await refreshSaveInfoBar();
 });
@@ -379,6 +380,9 @@ document.getElementById('btn-run').addEventListener('click', async () => {
     engineResults = await window.api.runEngine(savePath, settings);
     selectedTeams = new Set();
     renderPreview();
+    if (!document.getElementById('national-map-modal').classList.contains('hidden')) {
+      refreshNationalMap();
+    }
   } finally {
     btn.textContent = 'Run engine';
     btn.disabled = false;
@@ -902,6 +906,62 @@ document.getElementById('btn-apply').addEventListener('click', async () => {
     ${result.dynastyHistorySeasonWarning ? `<div class="warning">${result.dynastyHistorySeasonWarning}</div>` : ''}
     ${result.historyWarning ? `<div class="warning">${result.historyWarning}</div>` : ''}
   `;
+});
+
+// ===== National Map =====
+let conferenceMembersCache = null;
+let nationalPipelineData = {};
+
+async function refreshNationalMap() {
+  const container = document.getElementById('national-map-container');
+  if (!engineResults || Object.keys(engineResults).length === 0) {
+    container.innerHTML = '<div class="map-loading">Run the engine to see the national map.</div>';
+    document.getElementById('conference-strengths-list').innerHTML = '';
+    return;
+  }
+
+  if (!conferenceMembersCache) {
+    try {
+      conferenceMembersCache = await window.api.getConferenceMembers(savePath);
+    } catch (err) {
+      console.error('Could not load conference membership:', err);
+      conferenceMembersCache = [];
+    }
+  }
+
+  nationalPipelineData = await window.PipelineMap.renderNationalMap(
+    container, engineResults, teamColors,
+    (regionName) => showRegionBreakdown(regionName)
+  );
+
+  const strengths = window.PipelineMap.buildConferenceStrengths(conferenceMembersCache, engineResults);
+  const listEl = document.getElementById('conference-strengths-list');
+  listEl.innerHTML = strengths.map((s) => `
+    <div class="conference-strength-row">
+      <span class="conference-strength-name">${s.conference}</span>
+      <span class="conference-strength-region">${s.strongestRegion || '(no data)'}</span>
+      <span class="conference-strength-total">${s.total}</span>
+    </div>
+  `).join('');
+}
+
+function showRegionBreakdown(regionName) {
+  const body = document.getElementById('region-breakdown-body');
+  body.innerHTML = window.PipelineMap.buildRegionBreakdownHTML(regionName, nationalPipelineData, teamColors);
+  document.getElementById('region-breakdown-modal').classList.remove('hidden');
+}
+
+document.getElementById('btn-close-region-breakdown').addEventListener('click', () => {
+  document.getElementById('region-breakdown-modal').classList.add('hidden');
+});
+
+document.getElementById('btn-open-national-map').addEventListener('click', async () => {
+  document.getElementById('national-map-modal').classList.remove('hidden');
+  await refreshNationalMap();
+});
+
+document.getElementById('btn-close-national-map').addEventListener('click', () => {
+  document.getElementById('national-map-modal').classList.add('hidden');
 });
 
 init();

@@ -13,6 +13,7 @@ const {
   readDynastyCode,
   readCurrentSeason,
   readUserTeam,
+  getConferenceMembers,
 } = require('./io/saveFile');
 const { recordSnapshot } = require('./io/pipelineHistory');
 const regionCentroids = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/regionCentroids.json'), 'utf8'));
@@ -102,6 +103,14 @@ ipcMain.handle('get-presets', () => PRESETS);
 ipcMain.handle('get-team-colors', () => teamColors);
 ipcMain.handle('get-state-to-pipeline', () => stateToPipeline);
 ipcMain.handle('get-logos-dir', () => LOGOS_DIR);
+
+// Powers the National Map tab -- real conference membership, straight
+// from the save's own Conference table (not a hardcoded map). Read-only,
+// separate from run-engine, since this doesn't depend on any settings.
+ipcMain.handle('get-conference-members', async (_event, { savePath }) => {
+  const franchise = await openSave(savePath);
+  return getConferenceMembers(franchise);
+});
 
 const { loadHistory, deleteSeason, deleteDynastyHistory } = require('./io/pipelineHistory');
 ipcMain.handle('get-history', () => loadHistory(app));

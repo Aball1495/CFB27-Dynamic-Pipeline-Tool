@@ -140,6 +140,7 @@ body {
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
   padding: 1.25rem; width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; position: relative;
 }
+.national-map-modal-content { width: min(1100px, 95vw); }
 .map-modal-close { position: absolute; top: 0.75rem; right: 0.75rem; }
 
 .map-header { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 0.75rem; }
@@ -179,3 +180,31 @@ body {
 .fang-modal-question { font-weight: 500; margin: 0.75rem 0 0.5rem; }
 .fang-modal-buttons { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
 .fang-modal-buttons .btn { width: 100%; text-align: center; padding: 0.55rem; }
+
+.conference-strengths-title { font-size: 0.95rem; margin: 1.25rem 0 0.25rem; color: var(--text-primary); }
+.conference-strength-row {
+  display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: center;
+  padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+}
+.conference-strength-row:last-child { border-bottom: none; }
+.conference-strength-name { font-weight: 500; }
+.conference-strength-region { color: var(--text-secondary); }
+.conference-strength-total { color: var(--text-muted); font-size: 0.8rem; text-align: right; }
+
+.region-breakdown-header { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+.region-breakdown-empty { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; }
+.region-contested-note {
+  font-size: 0.78rem; color: #e6a23c; margin-bottom: 0.75rem; padding: 0.4rem 0.6rem;
+  background: rgba(230, 162, 60, 0.1); border-left: 3px solid #e6a23c; border-radius: 4px;
+}
+.region-claimant-list { display: flex; flex-direction: column; gap: 0.2rem; max-height: 400px; overflow-y: auto; }
+.region-claimant-row {
+  display: grid; grid-template-columns: 24px 14px 1fr 26px 50px; gap: 0.6rem; align-items: center;
+  padding: 0.35rem 0.5rem; border-radius: 6px; font-size: 0.83rem;
+}
+.region-claimant-row.region-claimant-king { background: rgba(255, 255, 255, 0.05); font-weight: 600; }
+.region-claimant-rank { color: var(--text-muted); text-align: right; }
+.region-claimant-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.region-claimant-team { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tier-pin { display: block; justify-self: center; }
+.region-claimant-value { color: var(--text-muted); text-align: right; font-size: 0.78rem; }

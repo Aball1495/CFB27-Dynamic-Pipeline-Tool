@@ -996,6 +996,101 @@ async function writeUpdatedSave(savePath, teamUpdates, backupDir = null, capacit
   return { outputPath: savePath, backupPath, verified, verificationError, integrityFixesApplied, pipelineInitialInfluenceReset, capacityReclaimed };
 }
 
+/**
+ * Reads REAL, exact conference membership directly from the save file --
+ * no statistical inference needed. Ported from a sibling tool (the CFB27
+ * Bracket Tool's conferenceMemberships.mjs), which itself borrowed this
+ * from another sibling tool (the CFB27 Schedule Generator) -- confirmed
+ * working there against a real save with a heavily scrambled custom
+ * realignment, every team landing in the right conference against real
+ * in-game standings screenshots. The decode logic below is left exactly
+ * as validated there; only the final return shape changed.
+ *
+ * The "Conference" table has "Name" and "TeamSlots" fields, and
+ * TeamSlots is a reference into a separate slot-array record -- same
+ * shape as Team.Roster, just decoded through the manual 32-bit reference
+ * string instead of the schema's .isReference/.referenceData API (which
+ * doesn't expose this particular field the normal way -- not a stylistic
+ * choice, this was the part that actually took real work to figure out
+ * in the sibling tool, so it's kept as-is rather than "improved" blind).
+ *
+ * IMPORTANT: resolveSlotArray below returns Team table ROW POSITIONS, not
+ * Team.TeamIndex. Every other function in this file keys teams by
+ * Team.TeamIndex (the field) -- confirmed on a real save that these two
+ * numbers can genuinely differ for the same team. getConferenceMembers()
+ * converts row -> Team.TeamIndex right before returning, specifically so
+ * nothing downstream of this function ever has to think about row
+ * position at all -- the exact class of bug that caused a real,
+ * confirmed cross-keying issue in readPlayers() earlier this project.
+ *
+ * @returns {Array<{ name: string, memberTeamIndexes: number[] }>}
+ */
+function decodeRef32(binaryStr) {
+  if (!binaryStr || typeof binaryStr !== 'string' || binaryStr.length !== 32) return null;
+  const tableId = parseInt(binaryStr.slice(0, 15), 2);
+  const row = parseInt(binaryStr.slice(15), 2);
+  if (!tableId && !row) return null;
+  return { t: tableId, r: row };
+}
+
+function getTableIdByName(franchise, name) {
+  const matches = franchise.tables.filter((t) => t.name === name);
+  if (!matches.length) throw new Error(`Table not found by name: ${name}`);
+  return matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a)).header.tableId;
+}
+
+async function resolveSlotArray(franchise, refString, teamTableId) {
+  const ref = decodeRef32(refString);
+  if (!ref) return [];
+  const table = franchise.getTableById(ref.t);
+  await table.readRecords();
+  const record = table.records[ref.r];
+  if (!record) return [];
+  const rows = [];
+  for (const field of table.offsetTable) {
+    try {
+      const decoded = decodeRef32(record[field.name]);
+      if (decoded && decoded.t === teamTableId) rows.push(decoded.r);
+    } catch {
+      // Not every field decodes as a reference -- expected, skip it.
+    }
+  }
+  return rows;
+}
+
+async function getConferenceMembers(franchise) {
+  const teamTableId = getTableIdByName(franchise, 'Team');
+  const teamTable = franchise.getTableById(teamTableId);
+  if (!teamTable.recordsRead) await teamTable.readRecords();
+
+  const conferenceTableId = getTableIdByName(franchise, 'Conference');
+  const confTable = franchise.getTableById(conferenceTableId);
+  await confTable.readRecords();
+
+  const conferences = [];
+  for (const record of confTable.records) {
+    let name;
+    try { name = String(record.Name || '').trim(); } catch { continue; }
+    if (!name) continue;
+
+    const rows = await resolveSlotArray(franchise, record.TeamSlots, teamTableId);
+    if (!rows.length && name !== 'Independent') continue;
+
+    // Row -> Team.TeamIndex conversion happens here, once, so every
+    // caller downstream only ever sees Team.TeamIndex values.
+    const memberTeamIndexes = rows
+      .map((row) => {
+        const teamRecord = teamTable.records[row];
+        if (!teamRecord) return null;
+        try { return teamRecord.TeamIndex; } catch { return null; }
+      })
+      .filter((ti) => ti !== null);
+
+    conferences.push({ name, memberTeamIndexes });
+  }
+  return conferences;
+}
+
 module.exports = {
   TABLE_UNIQUE_IDS,
   openSave,
@@ -1009,4 +1104,5 @@ module.exports = {
   readUserTeam,
   expandTeamPipelineSlots,
   shrinkTeamPipelineSlots,
+  getConferenceMembers,
 };
